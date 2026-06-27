@@ -1,31 +1,52 @@
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
-python-multipart==0.0.9
-pydantic==2.7.1
-pydantic-settings==2.2.1
-loguru==0.7.2
-openai==1.35.0
-tiktoken==0.7.0
-httpx==0.27.0
-langchain==0.2.3
-langchain-core==0.2.4
-langchain-openai==0.1.8
-langchain-community==0.2.4
-langgraph==0.1.2
-chromadb==0.5.3
-sentence-transformers==3.0.1
-rank-bm25==0.2.2
-pypdf==4.2.0
-markdown==3.6
-python-docx==1.1.0
-pytesseract==0.3.10
-Pillow==10.3.0
-mcp==1.0.0
-sqlalchemy==2.0.30
-psycopg2-binary==2.9.9
-redis==5.0.4
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-pytest==8.2.0
-pytest-asyncio==0.23.7
-ragas==0.1.7
+# Web 框架
+fastapi>=0.111,<1.0
+uvicorn[standard]>=0.30,<1.0
+python-multipart>=0.0.9
+
+# 配置 / 日志
+pydantic>=2.7,<3.0
+pydantic-settings>=2.4,<3.0
+loguru>=0.7,<1.0
+
+# LLM
+openai>=1.35,<2.0
+tiktoken>=0.7,<1.0
+httpx>=0.27,<1.0
+
+# LangChain / LangGraph
+langchain>=0.2,<0.4
+langchain-core>=0.2,<0.4
+langchain-openai>=0.1,<0.3
+langchain-community>=0.2,<0.4
+langgraph>=0.1,<0.4
+
+# 向量库 / Embedding
+chromadb>=0.5,<1.0
+sentence-transformers>=3.0,<4.0
+
+# BM25 / Rerank
+rank-bm25>=0.2,<1.0
+
+# 文档解析
+pypdf>=4.0,<5.0
+markdown>=3.6,<4.0
+python-docx>=1.1,<2.0
+pytesseract>=0.3.10
+Pillow>=10.0,<12.0
+
+# MCP
+mcp>=1.0,<2.0
+
+# 数据库
+sqlalchemy>=2.0,<3.0
+psycopg2-binary>=2.9
+redis>=5.0,<6.0
+
+# 鉴权
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7
+
+# 测试 / 评估
+pytest>=8.0
+pytest-asyncio>=0.23
+ragas>=0.1
