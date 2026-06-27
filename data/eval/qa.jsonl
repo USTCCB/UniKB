@@ -1,0 +1,3 @@
+{"question": "UniKB 支持哪些 LLM？", "ground_truth": "DeepSeek、Qwen、OpenAI"}
+{"question": "产品的保修期是多久？", "ground_truth": "一年"}
+{"question": "支持哪些支付方式？", "ground_truth": "微信、支付宝、银联、企业月结"}
