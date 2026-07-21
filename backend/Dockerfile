@@ -1,18 +1,33 @@
-# UniKB backend Dockerfile
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1.6
+FROM python:3.11-slim AS base
 
-ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential tesseract-ocr tesseract-ocr-chi-sim && rm -rf /var/lib/apt/lists/*
+# System deps: build-essential for chromadb/sentence-transformers wheels on slim;
+# poppler-utils for PDF parsing; tesseract for OCR.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+    && pip install "pydantic[email]"
 
-COPY . .
+COPY app ./app
+COPY tests ./tests
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import httpx,os; httpx.get(f'http://127.0.0.1:{os.getenv("APP_PORT","8000")}/health', timeout=3).raise_for_status()" || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://localhost:8000/api/v1/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

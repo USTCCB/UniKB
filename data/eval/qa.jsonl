@@ -1,3 +1,8 @@
-{"question": "UniKB 支持哪些 LLM？", "ground_truth": "DeepSeek、Qwen、OpenAI"}
-{"question": "产品的保修期是多久？", "ground_truth": "一年"}
-{"question": "支持哪些支付方式？", "ground_truth": "微信、支付宝、银联、企业月结"}
+{"question": "UniKB 支持哪些大模型?", "ground_truth": "UniKB 通过 LLM_PROVIDER 配置支持 DeepSeek、Qwen、OpenAI 三家, 运行时可灵活切换。", "reference_context": ["UniKB 通过环境变量 LLM_PROVIDER 选择 deepseek/qwen/openai 中的任意一家, 调用时按 provider 拼装 base_url 与 model 即可。"]}
+{"question": "UniKB 的检索链路是怎么设计的?", "ground_truth": "BM25 + 向量双路召回, RRF 融合, 再过 Cross-Encoder 重排。", "reference_context": ["检索采用 BM25 + 向量语义双路召回, 经 RRF 融合, 再使用 BAAI/bge-reranker-base 重排, 显著提升长尾关键词召回率与事实准确率。"]}
+{"question": "如何把 UniKB 的工具暴露给 Claude Desktop?", "ground_truth": "通过 MCP 协议的 stdio 传输, 客户端配置 stdio 启动命令即可。", "reference_context": ["UniKB 通过 MCP 协议将工具集暴露为标准 server, stdio + SSE 双传输, 兼容 Claude Desktop、Cursor、Trae 等 AI 客户端。"]}
+{"question": "LangGraph 多 Agent 包含哪些节点?", "ground_truth": "Planner / Retriever / Coder / Reviewer 四个节点, 形成自检闭环。", "reference_context": ["基于 LangGraph 编排 Planner / Retriever / Coder / Reviewer 多 Agent 自检闭环, Reviewer 节点对 Coder 输出做置信度评估, 不通过则触发重试。"]}
+{"question": "如何部署 UniKB?", "ground_truth": "docker compose up -d 一键启动 backend + frontend + redis。", "reference_context": ["项目提供 docker-compose.yml, 包含 backend、frontend、redis 三个 service, 一行命令 docker compose up -d 即可启动完整链路。"]}
+{"question": "UniKB 怎么抑制模型幻觉?", "ground_truth": "Cross-Encoder 重排 + 多源引用溯源 + Reviewer 节点三道防线。", "reference_context": ["答案生成附带多源引用, 用户可点开核对原文; Reviewer 节点对生成结果做事实性自检, 必要时重试。"]}
+{"question": "默认的 Embedding 模型是什么?", "ground_truth": "BAAI/bge-small-zh-v1.5, 中文检索场景表现稳定。", "reference_context": ["EMBEDDING_MODEL 默认 BAAI/bge-small-zh-v1.5, 设备通过 EMBEDDING_DEVICE 控制 (cpu/cuda), 模型首次使用自动从 HuggingFace 下载。"]}
+{"question": "前端用的什么技术栈?", "ground_truth": "Next.js 14 + TypeScript + shadcn/ui。", "reference_context": ["前端采用 Next.js 14 App Router + TypeScript + Tailwind + shadcn/ui, 与后端通过 HTTPS/SSE 通信。"]}
