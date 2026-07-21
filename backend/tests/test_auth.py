@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import time
+from datetime import timedelta
+
+from jose import jwt
 
 from app.core.security import create_access_token, verify_token
 
@@ -17,14 +20,7 @@ def test_verify_returns_none_for_invalid_token():
 
 
 def test_token_expiry_in_future():
-    from datetime import timedelta
-
     token = create_access_token(subject="u-2", expires_delta=timedelta(minutes=60))
-    # 解码 payload 验证 exp
-    from jose import jwt
-
-    from app.core.config import settings
-
     payload = jwt.get_unverified_claims(token)
     assert payload["sub"] == "u-2"
     assert payload["exp"] > int(time.time())

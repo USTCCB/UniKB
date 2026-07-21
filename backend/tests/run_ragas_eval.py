@@ -26,7 +26,7 @@ async def _evaluate(records: list[dict], kb: str) -> dict:
     questions, answers, contexts, ground_truths = [], [], [], []
     for r in records:
         q = r["question"]
-        ref_ctx = r.get("reference_context", [])
+        ref_ctx = r.get("reference_context", [])  # noqa: F841  # reserved for custom metrics later
         gt = r["ground_truth"]
 
         result = await run_rag(question=q, kb_id=kb, top_k=5)
