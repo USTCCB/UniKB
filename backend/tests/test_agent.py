@@ -30,7 +30,19 @@ def test_planner_node_sets_plan(monkeypatch):
 
 
 def test_reviewer_node_accepts_cited_answer(monkeypatch):
-    monkeypatch.setattr("app.agents.graph.get_llm", lambda: FakeLLM("通过"))
+    """reviewer_node 在 LLM 返回 '通过' 时, state.final 等于 draft."""
+    calls = {"n": 0}
+
+    def fake_get_llm():
+        calls["n"] += 1
+
+        class L:
+            def invoke(self, _msgs):
+                # 第一次返回 "通过", 不再二次改写
+                return AIMessage(content="通过" if calls["n"] == 1 else "")
+        return L()
+
+    monkeypatch.setattr("app.agents.graph.get_llm", fake_get_llm)
     state: AgentState = {
         "messages": [HumanMessage(content="q")],
         "plan": "",
@@ -40,15 +52,12 @@ def test_reviewer_node_accepts_cited_answer(monkeypatch):
         "trace": [],
     }
     out = reviewer_node(state)
-    assert out["final"] == "通过"
+    assert out["final"] == "根据 [1] 引用, 答案是 42。"  # draft 被保留
     assert any(t["role"] == "reviewer" for t in out["trace"])
 
 
-def test_reviewer_node_flags_inadequate_answer(monkeypatch):
-    monkeypatch.setattr(
-        "app.agents.graph.get_llm",
-        lambda: FakeLLM("不通过: 没有引用检索结果"),
-    )
+def test_reviewer_node_triggers_rewrite_on_reject(monkeypatch):
+    """LLM 返回非通过时, 第二次 invoke 会被调用来重写, state.final 是重写结果."""
     state: AgentState = {
         "messages": [HumanMessage(content="q")],
         "plan": "",
@@ -57,8 +66,21 @@ def test_reviewer_node_flags_inadequate_answer(monkeypatch):
         "final": "",
         "trace": [],
     }
+
+    def fake_get_llm():
+        class L:
+            def invoke(self, _msgs):
+                # 第一次返回拒绝, 第二次返回改写
+                if not getattr(fake_get_llm, "_called", False):
+                    fake_get_llm._called = True
+                    return AIMessage(content="不通过: 没有引用检索结果")
+                return AIMessage(content="改写后答案: 根据 [1], 答案是 X。")
+        return L()
+
+    monkeypatch.setattr("app.agents.graph.get_llm", fake_get_llm)
     out = reviewer_node(state)
-    assert "不通过" in out["final"] or "重写" in out["final"] or "问题" in out["final"]
+    assert "改写" in out["final"]
+    assert out["final"] != "我不知道。"
 
 
 def test_message_history_concatenates_through_review():
