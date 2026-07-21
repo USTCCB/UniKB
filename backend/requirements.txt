@@ -9,6 +9,8 @@ python-multipart>=0.0.9
 # --- Auth ---
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+# passlib 1.7.4 与 bcrypt 4.0.x 的后端接口兼容；4.1+ 会失去版本元数据，5.x 会在探测时抛异常。
+bcrypt>=4.0,<4.1
 
 # --- LLM / Agent ---
 langchain>=0.2.10,<0.3
