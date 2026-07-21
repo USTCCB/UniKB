@@ -1,9 +1,11 @@
 # --- Web / API ---
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
-pydantic[email]==2.9.2
-python-multipart==0.0.9
+# fastapi 0.115 要 starlette <0.39, 但 mcp 1.1 要 starlette >=0.39;
+# 升级到 fastapi 0.116+ 解决冲突
+fastapi>=0.116.0,<0.120
+uvicorn[standard]>=0.30.6
+pydantic>=2.9.2,<3
+pydantic[email]>=2.9.2,<3
+python-multipart>=0.0.9
 
 # --- Auth ---
 python-jose[cryptography]==3.3.0
