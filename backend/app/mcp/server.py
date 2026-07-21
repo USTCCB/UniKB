@@ -5,7 +5,17 @@ from __future__ import annotations
 
 from loguru import logger
 
-from app.agents.tools import build_tools
+def _register_tool(server, tool):
+    """将单个 LangChain tool 注册为 MCP tool，避免循环闭包捕获最后一个工具。"""
+    @server.tool(name=tool.name, description=tool.description)
+    def tool_wrapper(*args, **kwargs):
+        try:
+            return tool.invoke(kwargs or (args[0] if args else {}))
+        except Exception as e:
+            logger.exception(f"MCP tool {tool.name} failed: {e}")
+            return f"Error: {e}"
+
+    return tool_wrapper
 
 
 def build_mcp_server(kb_id: str = "default"):
@@ -16,19 +26,15 @@ def build_mcp_server(kb_id: str = "default"):
         logger.error("mcp not installed. `pip install mcp`")
         raise
 
+    # 延迟导入，保证只使用工具适配函数时不要求安装完整 Agent 依赖。
+    from app.agents.tools import build_tools
+
     server = FastMCP("UniKB")
 
     tools = build_tools(kb_id)
 
-    for t in tools:
-        # 把 LangChain tool 适配为 MCP tool
-        @server.tool(name=t.name, description=t.description)
-        def _tool_wrapper(*args, **kwargs):
-            try:
-                return t.invoke(kwargs or (args[0] if args else {}))
-            except Exception as e:
-                logger.exception(f"MCP tool {t.name} failed: {e}")
-                return f"Error: {e}"
+    for tool in tools:
+        _register_tool(server, tool)
 
     return server
 

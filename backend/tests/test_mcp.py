@@ -1,34 +1,55 @@
-"""测试 4: MCP server 构建 + tool 注册.
-
-注意: app.mcp.server 依赖 `from mcp.server.fastmcp import FastMCP`,
-但 mcp 1.1.0 还没有 fastmcp 子模块 (1.2+ 才有). 在 CI 上 ImportError 就 skip.
-"""
+"""MCP 工具适配测试：不依赖真实 MCP 服务端或模型。"""
 from __future__ import annotations
 
-import pytest
 
-# 把整个模块跳过如果 mcp.server.fastmcp 不存在
-fastmcp = pytest.importorskip("mcp.server.fastmcp")
+class FakeServer:
+    def __init__(self):
+        self.registered = {}
 
-
-def test_build_mcp_server_returns_fastmcp_instance():
-    from app.mcp.server import build_mcp_server
-
-    server = build_mcp_server(kb_id="default")
-    assert isinstance(server, fastmcp.FastMCP)
-
-
-def test_build_tools_returns_langchain_tools():
-    from app.agents.tools import build_tools
-
-    tools = build_tools(kb_id="default")
-    names = {t.name for t in tools}
-    assert "hybrid_search" in names
+    def tool(self, *, name, description):
+        def decorator(fn):
+            self.registered[name] = {"description": description, "handler": fn}
+            return fn
+        return decorator
 
 
-def test_mcp_server_wrapper_is_callable():
-    from app.mcp.server import build_mcp_server
+class FakeTool:
+    def __init__(self, name):
+        self.name = name
+        self.description = f"{name} description"
+        self.calls = []
 
-    server = build_mcp_server(kb_id="default")
-    # FastMCP 实例至少有 .tool 装饰器
-    assert callable(getattr(server, "tool", None)) or hasattr(server, "_tool_manager")
+    def invoke(self, payload):
+        self.calls.append(payload)
+        return {"tool": self.name, "payload": payload}
+
+
+def test_register_tool_keeps_each_tool_binding():
+    from app.mcp.server import _register_tool
+
+    server = FakeServer()
+    search = FakeTool("hybrid_search")
+    calculator = FakeTool("calculator")
+    _register_tool(server, search)
+    _register_tool(server, calculator)
+
+    assert server.registered["hybrid_search"]["handler"](query="RAG") == {
+        "tool": "hybrid_search", "payload": {"query": "RAG"},
+    }
+    assert server.registered["calculator"]["handler"](expression="1+1") == {
+        "tool": "calculator", "payload": {"expression": "1+1"},
+    }
+    assert search.calls == [{"query": "RAG"}]
+    assert calculator.calls == [{"expression": "1+1"}]
+
+
+def test_register_tool_returns_error_message_on_failure():
+    from app.mcp.server import _register_tool
+
+    class BrokenTool(FakeTool):
+        def invoke(self, payload):
+            raise RuntimeError("boom")
+
+    server = FakeServer()
+    _register_tool(server, BrokenTool("broken"))
+    assert server.registered["broken"]["handler"](value=1) == "Error: boom"

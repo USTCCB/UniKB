@@ -18,7 +18,7 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 - MCP 协议：原生支持 Model Context Protocol，可扩展工具集
 - 多模态文档解析：PDF（含 OCR）+ Markdown + 图片（VLM 摘要）
 - 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源
-- 工程化：JWT 鉴权 + API Key + Docker Compose 一键部署 + GitHub Actions CI/CD
+- 工程化：JWT 鉴权 + API Key + Docker Compose 一键部署 + GitHub Actions CI + GHCR 镜像发布 CD
 - 可观测性：内置 LangFuse 对接（可选，关闭时无副作用）
 - 评估体系：集成 RAGAS 自动评估（4 大指标）
 
@@ -39,7 +39,7 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 | 文件 | 本地 / MinIO 可切换 |
 | 可观测 | LangFuse（可选） |
 | 评估 | RAGAS |
-| 工程化 | Docker Compose + GitHub Actions |
+| 工程化 | Docker Compose + GitHub Actions CI + GitHub Container Registry 发布 |
 
 ## 架构图
 
@@ -218,7 +218,7 @@ UniKB/
 +- docs/                   # 架构、面试讲解
 +- data/samples/           # 示例文档
 +- docker-compose.yml
-+- .github/workflows/      # CI/CD (lint + pytest + coverage + frontend build + docker build)
++- .github/workflows/      # CI + 镜像发布 (lint / pytest / 前端构建 / Docker / GHCR)
 +- LICENSE
 +- README.md
 ```
