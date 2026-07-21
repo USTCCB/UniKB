@@ -5,6 +5,7 @@ fastapi>=0.116.0,<0.120
 uvicorn[standard]>=0.30.6
 pydantic>=2.9.2,<3
 pydantic[email]>=2.9.2,<3
+pydantic-settings>=2.5.2,<3
 python-multipart>=0.0.9
 
 # --- Auth ---
