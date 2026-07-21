@@ -1,6 +1,6 @@
 # UniKB - 通用企业级 RAG 知识库平台
 
-> Multi-Agent + MCP + Hybrid Search + Full-Stack，可作为 2026 届 AI 应用开发岗的项目作品。
+> Multi-Agent + MCP + Hybrid Search + Full-Stack。
 
 [![CI](https://github.com/USTCCB/UniKB/actions/workflows/ci.yml/badge.svg)](https://github.com/USTCCB/UniKB/actions) [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)]() [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688)]() [![LangGraph](https://img.shields.io/badge/LangGraph-0.2%2B-orange)]() [![MCP](https://img.shields.io/badge/MCP-1.0-purple)]() [![License](https://img.shields.io/badge/license-MIT-green)]()
 
