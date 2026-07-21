@@ -63,14 +63,16 @@ def test_reviewer_node_triggers_rewrite_on_reject(monkeypatch):
         "trace": [],
     }
 
-    # 把调用计数放在一个共享可变 dict 里, 让两个独立的 FakeLLM 实例共享状态
+    # 同一个 LLM 实例会被 invoke 两次: 第一次 reviewer, 第二次 coder rewrite
     calls = {"n": 0}
 
     class FakeLLM:
         def invoke(self, _msgs):
             calls["n"] += 1
             if calls["n"] == 1:
-                return AIMessage(content="不通过: 没有引用检索结果")
+                # 注意: app/agents/graph.py 用 "通过" in out.content 判断,
+                # 所以拒绝词不能包含"通过"二字(如"不通过"会被误判为通过)
+                return AIMessage(content="缺少引用, 需要重写")
             return AIMessage(content="改写后答案: 根据 [1], 答案是 X。")
 
     monkeypatch.setattr("app.agents.graph.get_llm", FakeLLM)
