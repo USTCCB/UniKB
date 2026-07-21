@@ -20,3 +20,10 @@ data/eval/results/
 data/*.pkl
 data/*.db
 *.log
+data/history/
+data/bm25_*.pkl
+data/chroma/
+data/uploads/
+data/files/
+data/unikb.db
+backend/data/

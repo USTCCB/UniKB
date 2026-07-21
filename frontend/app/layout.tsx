@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import Nav from "@/components/Nav";
 
 export const metadata: Metadata = {
   title: "UniKB - 企业知识库",
@@ -9,7 +10,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <Nav />
+        <main className="container">{children}</main>
+      </body>
     </html>
   );
 }

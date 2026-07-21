@@ -1,29 +1,129 @@
 version: "3.9"
 
+# 默认 profile: backend + frontend + redis
+# 启动带 Postgres:  docker compose --profile pg up -d
+# 启动带 LangFuse:  docker compose --profile observability up -d
+
 services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: unikb-backend
-    ports: ["8000:8000"]
+    image: unikb-backend:latest
+    ports:
+      - "8000:8000"
     env_file: ./backend/.env
-    volumes: ["./data:/app/data"]
-    depends_on: [redis]
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/unikb.db}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+      - ./backend/mcp_servers.json:/app/mcp_servers.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
+    networks: [unikb-net]
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: unikb-frontend
-    ports: ["3000:3000"]
-    environment: ["NEXT_PUBLIC_API_BASE=http://localhost:8000"]
-    depends_on: [backend]
+    image: unikb-frontend:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    networks: [unikb-net]
 
   redis:
     image: redis:7-alpine
     container_name: unikb-redis
-    ports: ["6379:6379"]
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
+    networks: [unikb-net]
+
+  # 可选: Postgres (启用: docker compose --profile pg up -d)
+  postgres:
+    profiles: ["pg"]
+    image: postgres:16-alpine
+    container_name: unikb-postgres
+    environment:
+      - POSTGRES_USER=unikb
+      - POSTGRES_PASSWORD=unikb
+      - POSTGRES_DB=unikb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unikb -d unikb"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks: [unikb-net]
+
+  # 可选: LangFuse 自托管 (启用: docker compose --profile observability up -d)
+  langfuse-web:
+    profiles: ["observability"]
+    image: langfuse/langfuse:2
+    container_name: unikb-langfuse
+    ports:
+      - "3001:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-db:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_SECRET=unikb-langfuse-secret
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - TELEMETRY_ENABLED=false
+    depends_on:
+      - langfuse-db
+    restart: unless-stopped
+    networks: [unikb-net]
+
+  langfuse-db:
+    profiles: ["observability"]
+    image: postgres:16-alpine
+    container_name: unikb-langfuse-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=langfuse
+    volumes:
+      - langfuse-pg:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks: [unikb-net]
+
+volumes:
+  redis-data:
+  pg-data:
+  langfuse-pg:
+
+networks:
+  unikb-net:
+    driver: bridge

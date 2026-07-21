@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import auth, chat, documents, health
+from app.api import auth, chat, documents, health, history
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -38,6 +38,7 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(history.router)
 
 
 if __name__ == "__main__":

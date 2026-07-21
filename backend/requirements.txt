@@ -1,6 +1,4 @@
 # --- Web / API ---
-# fastapi 0.115 要 starlette <0.39, 但 mcp 1.1 要 starlette >=0.39;
-# 升级到 fastapi 0.116+ 解决冲突
 fastapi>=0.116.0,<0.120
 uvicorn[standard]>=0.30.6
 pydantic>=2.9.2,<3
@@ -13,7 +11,6 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
 # --- LLM / Agent ---
-# 锁 langchain 全家桶到同一 minor, 避免 langchain-core / langgraph 之间的版本冲突
 langchain>=0.2.10,<0.3
 langchain-core>=0.2.40,<0.3
 langgraph>=0.2.20,<0.3
@@ -37,6 +34,7 @@ redis==5.0.8
 
 # --- Observability / Eval ---
 loguru==0.7.2
+langfuse==2.45.0
 ragas==0.1.10
 datasets==2.21.0
 

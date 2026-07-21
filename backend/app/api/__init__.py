@@ -1,5 +1,5 @@
 """API routers."""
 
-from app.api import auth, documents, chat, health
+from app.api import auth, chat, documents, health, history
 
-__all__ = ["auth", "documents", "chat", "health"]
+__all__ = ["auth", "chat", "documents", "health", "history"]
