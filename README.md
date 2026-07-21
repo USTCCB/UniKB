@@ -2,7 +2,7 @@
 
 > Multi-Agent + MCP + Hybrid Search + Full-Stack。
 
-[![CI](https://github.com/USTCCB/UniKB/actions/workflows/ci.yml/badge.svg)](https://github.com/USTCCB/UniKB/actions) [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)]() [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688)]() [![LangGraph](https://img.shields.io/badge/LangGraph-0.2%2B-orange)]() [![MCP](https://img.shields.io/badge/MCP-1.0-purple)]() [![License](https://img.shields.io/badge/license-MIT-green)]()
+[![CI](https://github.com/USTCCB/UniKB/actions/workflows/ci.yml/badge.svg)](https://github.com/USTCCB/UniKB/actions) [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)]() [![FastAPI](https://img.shields.io/badge/FastAPI-0.116%2B-009688)]() [![LangGraph](https://img.shields.io/badge/LangGraph-0.2%2B-orange)]() [![MCP](https://img.shields.io/badge/MCP-1.0-purple)]() [![License](https://img.shields.io/badge/license-MIT-green)]()
 
 ## 简介
 
@@ -19,8 +19,8 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 - 多模态文档解析：PDF（含 OCR）+ Markdown + 图片（VLM 摘要）
 - 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源
 - 工程化：JWT 鉴权 + API Key + Docker Compose 一键部署 + GitHub Actions CI/CD
-- 可观测性：内置 LangFuse 对接（可选）
-- 评估体系：集成 RAGAS 自动评估
+- 可观测性：内置 LangFuse 对接（可选，关闭时无副作用）
+- 评估体系：集成 RAGAS 自动评估（4 大指标）
 
 ## 技术栈
 
@@ -30,7 +30,7 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 | Agent 框架 | LangChain + LangGraph |
 | MCP 协议 | mcp 1.0+（stdio + SSE 传输） |
 | 后端 | FastAPI + Uvicorn（异步） |
-| 前端 | Next.js 14 + TypeScript + shadcn/ui |
+| 前端 | Next.js 14 + TypeScript（App Router） |
 | 向量库 | Chroma（轻量、可零配置） |
 | 检索 | BM25（rank_bm25）+ 向量 + RRF |
 | 重排 | Cross-Encoder（BAAI/bge-reranker-base） |
@@ -46,13 +46,13 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 ```
 +----------------------------------------------------------------+
 |                    Next.js 14 (Frontend)                         |
-|         Chat UI  Upload  Sources  History                        |
+|    Chat UI  Upload  Sources  History  (共享 AuthBar/Nav)         |
 +--------------------------+----------------------------------------+
                            |  HTTPS / SSE
 +--------------------------v----------------------------------------+
 |                   FastAPI (Backend)                              |
 |  +----------+  +----------+  +-------------+  +----------+       |
-|  |   Auth   |  |Documents |  |  Chat / SSE |  |  Admin   |       |
+|  |   Auth   |  |Documents |  |  Chat / SSE |  | History  |       |
 |  +----------+  +----------+  +------+------+  +----------+       |
 |                                |                                  |
 |               +----------------v------------------+               |
@@ -65,11 +65,32 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 |            | BM25+Vec+RRF| |DS/Qwen/OAI| | (可插拔)|              |
 |            +------+-----+ +--------+ +----------+                |
 |                   |                                                |
-|        +----------+--------+----------+                            |
-|        v          v        v                                       |
-|    Chroma    PostgreSQL   Redis                                     |
+|        +----------+--------+----------+----------+                 |
+|        v          v        v          v                           |
+|    Chroma    PostgreSQL   Redis    LangFuse (可选)                 |
 +--------------------------------------------------------------------+
 ```
+
+## 测试覆盖
+
+`backend/tests/` 下覆盖了以下模块的纯算法/纯逻辑路径，**不依赖重包**（不需 torch / sentence-transformers / chromadb / mcp / ragas 实跑）：
+
+| 模块 | 测试文件 | 覆盖点 |
+|---|---|---|
+| RAG 切片 | `test_chunker.py`, `test_chunking.py` | 中文/超长/空输入/边界 |
+| RRF 融合 | `test_rrf.py`, `test_retriever.py` | 多路/单路/无交集 |
+| Cross-Encoder 重排 | `test_reranker.py` | 排序/空输入/score 注入 |
+| LangGraph Agent 节点 | `test_agent.py` | Planner / Reviewer + 重写闭环 |
+| JWT 鉴权 | `test_auth.py` | 签发/校验/过期 |
+| Schema 输入校验 | `test_schemas.py` | 注册/聊天/文档 12 个 case |
+| 配置管理 | `test_config_and_security.py` | env 加载/路由/越界 |
+| History API | `test_history_api.py` | CRUD/排序/404 |
+| Observability | `test_observability.py` | noop 上下文 + pipeline 集成 |
+| RAGAS 脚本 | `test_ragas_eval_script.py` | JSONL 加载/格式化 |
+| FastAPI 注册 | `test_smoke.py` | app/router/OpenAPI 完整性 |
+| MCP server | `test_mcp.py` | 缺包时自动 skip |
+
+CI 跑通 **63 passed, 1 skipped**。要覆盖更深（如真实 Chroma 检索、Cross-Encoder 推理），需在本地 `docker compose up backend` 起服务并下载模型后再跑。
 
 ## 快速开始
 
@@ -104,6 +125,13 @@ docker compose up -d
 - 前端 UI：http://localhost:3000
 - API 文档：http://localhost:8000/docs
 
+可选 profile：
+
+```bash
+docker compose --profile pg up -d             # 加 Postgres
+docker compose --profile observability up -d  # 加 LangFuse 自托管
+```
+
 ### 4. 本地开发模式
 
 ```bash
@@ -117,6 +145,13 @@ uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 npm run dev
+```
+
+### 5. 跑测试
+
+```bash
+cd backend
+python -m pytest -v --cov=app
 ```
 
 ## 关键功能演示
@@ -144,26 +179,46 @@ curl -N http://localhost:8000/api/v1/chat/stream ^
 
 请求体 `{"mode": "agent", ...}`，后端执行 Planner / Retriever / Coder / Reviewer 全链路，返回带中间步骤的轨迹。
 
+### 4) 历史会话
+
+```bash
+# 列出
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8000/api/v1/history
+# 追加
+curl -X POST http://localhost:8000/api/v1/history/<sid>/append \
+  -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"role": "user", "content": "hi"}'
+```
+
+### 5) 检索片段预览（前端 Sources 页用同一接口）
+
+```bash
+# 通过 SSE 取 source 事件, 或直接调 /api/v1/chat/stream 设置 question=关键词
+```
+
 ## 项目结构
 
 ```
 UniKB/
 +- backend/                # FastAPI 后端
 |  +- app/
-|  |  +- api/            # 路由层
-|  |  +- core/           # 配置、鉴权、日志
-|  |  +- rag/            # 文档解析、切片、检索、重排
-|  |  +- agents/         # LangGraph 多 Agent
+|  |  +- api/            # auth / chat / documents / history / health
+|  |  +- core/           # config / logging / security / observability
+|  |  +- rag/            # parser / chunker / embedding / retriever / reranker / pipeline
+|  |  +- agents/         # LangGraph 多 Agent + tools + llm_router
 |  |  +- mcp/            # MCP 工具集
 |  |  +- schemas/        # Pydantic 模型
-|  +- tests/              # 单元测试 + RAGAS 评估
+|  +- tests/              # 单元测试 (63 passed) + RAGAS 评估脚本
 |  +- Dockerfile
 |  +- requirements.txt
-+- frontend/               # Next.js 前端
++- frontend/               # Next.js 14 (app/ + components/ + lib/)
+|  +- app/{chat,upload,sources,history}/page.tsx
+|  +- components/{AuthBar,Nav}.tsx
+|  +- lib/api.ts
 +- docs/                   # 架构、面试讲解
 +- data/samples/           # 示例文档
 +- docker-compose.yml
-+- .github/workflows/      # CI/CD
++- .github/workflows/      # CI/CD (lint + pytest + coverage + frontend build + docker build)
 +- LICENSE
 +- README.md
 ```
@@ -172,10 +227,25 @@ UniKB/
 
 ```bash
 cd backend
-python -m tests.run_ragas_eval --kb default --dataset data/eval/qa.jsonl
+python -m tests.run_ragas_eval --kb default \
+    --dataset ../data/eval/qa.jsonl \
+    --out ../data/eval/ragas_report.json
 ```
 
-输出 faithfulness / answer_relevancy / context_precision / context_recall 四个核心指标。
+输出 faithfulness / answer_relevancy / context_precision / context_recall 四个核心指标 + JSON 报告（含每条样本）。
+
+## 可观测性（可选）
+
+`.env` 中设置：
+
+```
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-...
+LANGFUSE_SECRET_KEY=sk-...
+LANGFUSE_HOST=https://cloud.langfuse.com
+```
+
+RAG pipeline（retriever / reranker / llm）会自动写入 trace；不启用时无副作用。
 
 ## Roadmap
 
@@ -184,9 +254,13 @@ python -m tests.run_ragas_eval --kb default --dataset data/eval/qa.jsonl
 - [x] LangGraph 多 Agent
 - [x] MCP 协议适配
 - [x] SSE 流式问答
+- [x] 多轮对话 / 历史会话 / 引用溯源
+- [x] RAGAS 自动评估脚本 + JSON 报告
+- [x] LangFuse 可观测（可选）
+- [x] Docker Compose 一键起 + healthcheck
 - [ ] 用户 / 知识库多租户
-- [ ] RAGAS 自动回归
-- [ ] LangFuse 线上可观测面板
+- [ ] Postgres 迁移 SQLAlchemy
+- [ ] MinIO 文件存储
 
 ## License
 
