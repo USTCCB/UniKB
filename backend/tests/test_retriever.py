@@ -1,25 +1,27 @@
-"""测试 2: BM25 + 向量混合检索的 RRF 融合."""
-from app.rag.retriever import reciprocal_rank_fusion
+"""测试 2: RRF 融合 (Reciprocal Rank Fusion)."""
+from __future__ import annotations
+
+from app.rag.retriever import rrf_fuse
 
 
 def test_rrf_merges_overlapping_results_higher_rank():
-    bm25 = [("a", 10.0), ("b", 8.0), ("c", 5.0)]
-    vector = [("b", 0.9), ("a", 0.7), ("d", 0.6)]
-    fused = reciprocal_rank_fusion([bm25, vector], k=60)
-    # b/a 在两路都出现, 应该排前
-    top_ids = [doc_id for doc_id, _score in fused[:2]]
+    bm25 = [{"id": "a", "score": 10.0}, {"id": "b", "score": 8.0}, {"id": "c", "score": 5.0}]
+    vector = [{"id": "b", "score": 0.9}, {"id": "a", "score": 0.7}, {"id": "d", "score": 0.6}]
+    fused = rrf_fuse([bm25, vector], k=60)
+    top_ids = [item["id"] for item in fused[:2]]
+    # a/b 在两路都出现, 应该排前
     assert set(top_ids) == {"a", "b"}
 
 
-def test_rrf_single_source_returns_sorted_by_score():
-    bm25 = [("x", 1.0), ("y", 2.0), ("z", 3.0)]
-    fused = reciprocal_rank_fusion([bm25], k=60)
-    assert [d for d, _ in fused] == ["z", "y", "x"]
+def test_rrf_single_source_preserves_input_order():
+    bm25 = [{"id": "x"}, {"id": "y"}, {"id": "z"}]
+    fused = rrf_fuse([bm25], k=60)
+    assert [item["id"] for item in fused] == ["x", "y", "z"]
 
 
 def test_rrf_handles_disjoint_results():
-    bm25 = [("a", 1.0), ("b", 2.0)]
-    vector = [("c", 0.9), ("d", 0.8)]
-    fused = reciprocal_rank_fusion([bm25, vector], k=60)
+    bm25 = [{"id": "a"}, {"id": "b"}]
+    vector = [{"id": "c"}, {"id": "d"}]
+    fused = rrf_fuse([bm25, vector], k=60)
     assert len(fused) == 4
-    assert {d for d, _ in fused} == {"a", "b", "c", "d"}
+    assert {item["id"] for item in fused} == {"a", "b", "c", "d"}

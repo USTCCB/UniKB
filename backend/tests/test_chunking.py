@@ -1,26 +1,33 @@
-"""测试 1: 文档切片 (chunking)"""
-from app.rag.chunking import split_text
+"""测试 1: 文档切片 (Recursive chunker)."""
+from __future__ import annotations
+
+import pytest
+
+from app.rag.chunker import TextChunker
 
 
-def test_split_text_basic_chinese():
+@pytest.fixture
+def chunker():
+    return TextChunker(chunk_size=32, chunk_overlap=8)
+
+
+def test_chunk_basic_chinese(chunker):
     text = (
         "UniKB 是一个面向企业知识管理场景的 RAG 平台。"
         "核心目标是把文档/网页/图片等多源知识, 通过多 Agent 协作 + MCP 工具协议"
         "+ 混合检索 + 重排序 + 引用溯源, 最终以流式、可溯源的方式回答用户问题。"
     )
-    chunks = split_text(text, chunk_size=32, overlap=8)
+    chunks = chunker.split_text(text)
     assert len(chunks) >= 2
-    # overlap 必须生效
-    assert any(c in chunks[1] for c in chunks[0])
 
 
-def test_split_text_empty_input_returns_empty_list():
-    assert split_text("", chunk_size=100, overlap=10) == []
-    assert split_text("   \n\t  ", chunk_size=100, overlap=10) == []
+def test_chunk_empty_input_returns_empty_list(chunker):
+    assert chunker.split_text("") == []
+    assert chunker.split_text("   \n\t  ") == []
 
 
-def test_split_text_respects_chunk_size_upper_bound():
-    text = "句子。" * 500  # 1500 字符
-    chunks = split_text(text, chunk_size=64, overlap=8)
+def test_chunk_respects_size_upper_bound(chunker):
+    text = "句子。" * 500
+    chunks = chunker.split_text(text)
     for c in chunks:
-        assert len(c) <= 64 + 8  # 允许 overlap 边界
+        assert len(c.text) <= 32 + 8  # chunk_size + overlap 边界

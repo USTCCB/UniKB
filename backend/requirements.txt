@@ -10,12 +10,14 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
 # --- LLM / Agent ---
-langchain==0.2.16
-langchain-core==0.2.38
-langgraph==0.2.20
-langchain-text-splitters==0.2.4
-openai==1.51.0
-tiktoken==0.7.0
+# 锁 langchain 全家桶到同一 minor, 避免 langchain-core / langgraph 之间的版本冲突
+langchain>=0.2.10,<0.3
+langchain-core>=0.2.40,<0.3
+langgraph>=0.2.20,<0.3
+langchain-text-splitters>=0.2.4,<0.3
+langchain-openai>=0.1.10,<0.2
+openai>=1.51.0,<2
+tiktoken>=0.7.0,<1
 
 # --- RAG / Retrieval ---
 chromadb==0.5.5
