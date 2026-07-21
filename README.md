@@ -6,7 +6,7 @@
 
 ## 简介
 
-UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Generation）平台，核心目标：把 文档/网页/图片 等多源知识，通过 多 Agent 协作 + MCP 工具协议 + 混合检索 + 重排序 + 引用溯源，最终以 流式、可溯源 的方式回答用户问题。
+UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Generation）平台。它把本地文档知识通过多 Agent 协作、MCP 工具协议、混合检索与重排序，最终以流式、带检索片段的方式回答用户问题。
 
 支持 DeepSeek / Qwen / OpenAI 等多种 LLM 灵活切换。
 
@@ -16,7 +16,7 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 - 精排重排：Cross-Encoder（BGE-reranker）抑制幻觉
 - 多 Agent 协作：基于 LangGraph 的 Planner / Retriever / Coder / Reviewer 流程
 - MCP 协议：原生支持 Model Context Protocol，可扩展工具集
-- 多模态文档解析：PDF（含 OCR）+ Markdown + 图片（VLM 摘要）
+- 文档解析：PDF、DOCX、Markdown、TXT 与图片 OCR（图片 OCR 需要本机安装 Tesseract）
 - 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源
 - 工程化：JWT 鉴权 + API Key + Docker Compose 一键部署 + GitHub Actions CI + GHCR 镜像发布 CD
 - 可观测性：内置 LangFuse 对接（可选，关闭时无副作用）
