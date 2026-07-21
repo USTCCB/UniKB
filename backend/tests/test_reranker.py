@@ -17,7 +17,8 @@ class FakeCrossEncoder:
         self._scores = scores
         self.idx = 0
 
-    def predict(self, pairs):
+    def predict(self, pairs, **_kwargs):
+        # app.rag.reranker 用 m.predict(pairs, show_progress_bar=False), 所以接 **_kwargs
         n = len(pairs)
         out = self._scores[self.idx : self.idx + n]
         self.idx += n
@@ -55,7 +56,7 @@ def test_rerank_top_n_in_descending_order(reranker):
 
 def test_rerank_returns_dict_list_with_score(reranker):
     docs = _docs_as_dicts(["a", "b"])
-    ranked = reranker.rerank("q", docs, top_n=2)  # type: ignore[arg-type]
+    ranked = reranker.rerank("q", docs, top_k=2)
     assert isinstance(ranked, list)
     # 每条 result 应有 rerank_score
     assert all("rerank_score" in r for r in ranked)

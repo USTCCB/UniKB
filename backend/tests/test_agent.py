@@ -33,16 +33,12 @@ def test_reviewer_node_accepts_cited_answer(monkeypatch):
     """reviewer_node 在 LLM 返回 '通过' 时, state.final 等于 draft."""
     calls = {"n": 0}
 
-    def fake_get_llm():
-        calls["n"] += 1
+    class FakeLLM:
+        def invoke(self, _msgs):
+            calls["n"] += 1
+            return AIMessage(content="通过" if calls["n"] == 1 else "")
 
-        class L:
-            def invoke(self, _msgs):
-                # 第一次返回 "通过", 不再二次改写
-                return AIMessage(content="通过" if calls["n"] == 1 else "")
-        return L()
-
-    monkeypatch.setattr("app.agents.graph.get_llm", fake_get_llm)
+    monkeypatch.setattr("app.agents.graph.get_llm", FakeLLM)
     state: AgentState = {
         "messages": [HumanMessage(content="q")],
         "plan": "",
@@ -67,17 +63,17 @@ def test_reviewer_node_triggers_rewrite_on_reject(monkeypatch):
         "trace": [],
     }
 
-    def fake_get_llm():
-        class L:
-            def invoke(self, _msgs):
-                # 第一次返回拒绝, 第二次返回改写
-                if not getattr(fake_get_llm, "_called", False):
-                    fake_get_llm._called = True
-                    return AIMessage(content="不通过: 没有引用检索结果")
-                return AIMessage(content="改写后答案: 根据 [1], 答案是 X。")
-        return L()
+    # 把调用计数放在一个共享可变 dict 里, 让两个独立的 FakeLLM 实例共享状态
+    calls = {"n": 0}
 
-    monkeypatch.setattr("app.agents.graph.get_llm", fake_get_llm)
+    class FakeLLM:
+        def invoke(self, _msgs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return AIMessage(content="不通过: 没有引用检索结果")
+            return AIMessage(content="改写后答案: 根据 [1], 答案是 X。")
+
+    monkeypatch.setattr("app.agents.graph.get_llm", FakeLLM)
     out = reviewer_node(state)
     assert "改写" in out["final"]
     assert out["final"] != "我不知道。"
