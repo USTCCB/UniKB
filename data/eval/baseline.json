@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-07-23T16:30:22.203537Z",
+  "llm_mode": "fake_llm",
+  "kb_id": "default",
+  "mode": "rag",
+  "n_samples": 34,
+  "scores": {
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.29750973398831687,
+    "context_precision": 0.9999999999666668,
+    "context_recall": 1.0
+  },
+  "nan_metrics": [],
+  "note": "fake LLM 跑出来的分数, 仅作脚本通断校验, 不作 baseline.nan_metrics 列出退化的指标 (parser 全失败, 已置 0)."
+}

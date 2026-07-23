@@ -73,166 +73,91 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 
 ## 测试覆盖
 
-`backend/tests/` 下覆盖了以下模块的纯算法/纯逻辑路径，**不依赖重包**（不需 torch / sentence-transformers / chromadb / mcp / ragas 实跑）：
+`backend/tests/` 现在拆成两层:
 
-| 模块 | 测试文件 | 覆盖点 |
-|---|---|---|
-| RAG 切片 | `test_chunker.py`, `test_chunking.py` | 中文/超长/空输入/边界 |
-| RRF 融合 | `test_rrf.py`, `test_retriever.py` | 多路/单路/无交集 |
-| Cross-Encoder 重排 | `test_reranker.py` | 排序/空输入/score 注入 |
-| LangGraph Agent 节点 | `test_agent.py` | Planner / Reviewer + 重写闭环 |
-| JWT 鉴权 | `test_auth.py` | 签发/校验/过期 |
-| Schema 输入校验 | `test_schemas.py` | 注册/聊天/文档 12 个 case |
-| 配置管理 | `test_config_and_security.py` | env 加载/路由/越界 |
-| History API | `test_history_api.py` | CRUD/排序/404 |
-| Observability | `test_observability.py` | noop 上下文 + pipeline 集成 |
-| RAGAS 脚本 | `test_ragas_eval_script.py` | JSONL 加载/格式化 |
-| FastAPI 注册 | `test_smoke.py` | app/router/OpenAPI 完整性 |
-| MCP server | `test_mcp.py` | 缺包时自动 skip |
+| 类型 | 文件 | 覆盖点 | 运行条件 |
+|---|---|---|---|
+| 单元测试 | `test_*.py` (除 integration) | 算法/schema/auth/history/smoke/MCP noop 等 | 不依赖 torch / chromadb / sentence-transformers / 真实 LLM |
+| 集成测试 | `test_integration_retrieval.py` | HybridRetriever add/retrieve/delete + RRF + rerank + pipeline 端到端 + agent 模式 | 走 `tests/_fakes.py` fake 路径, 无需重包 |
 
-CI 跑通 **63 passed, 1 skipped**。要覆盖更深（如真实 Chroma 检索、Cross-Encoder 推理），需在本地 `docker compose up backend` 起服务并下载模型后再跑。
+CI 已拆分为两个并行 job:
 
-## 快速开始
+- `backend-unit-test`: 跑 63 个单元测试 + lint + 覆盖率
+- `backend-integration-test`: 跑 8 个集成测试, 验证完整检索/生成链路
 
-### 0. 准备
-
-- Python 3.10+
-- Node.js 18+（前端）
-- 可选：Docker / Docker Compose
-
-### 1. 克隆与安装
-
-```bash
-git clone https://github.com/USTCCB/UniKB.git
-cd UniKB
-```
-
-### 2. 配置环境变量
+本地跑法:
 
 ```bash
 cd backend
-cp .env.example .env
-# 编辑 .env，至少填一个 LLM_API_KEY（DeepSeek / Qwen / OpenAI）
-```
+# 单元测试
+python -m pytest -v --ignore=tests/test_integration_retrieval.py
 
-### 3. 一键启动（推荐 Docker）
+# 集成测试(fake 路径, 不需要 chromadb/torch)
+UNIKB_FAKE_EMBEDDING=1 python -m pytest -v tests/test_integration_retrieval.py
 
-```bash
-docker compose up -d
-```
-
-- 后端 API：http://localhost:8000
-- 前端 UI：http://localhost:3000
-- API 文档：http://localhost:8000/docs
-
-可选 profile：
-
-```bash
-docker compose --profile pg up -d             # 加 Postgres
-docker compose --profile observability up -d  # 加 LangFuse 自托管
-```
-
-### 4. 本地开发模式
-
-```bash
-# 后端
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# 前端（新终端）
-cd frontend
-npm install
-npm run dev
-```
-
-### 5. 跑测试
-
-```bash
-cd backend
-python -m pytest -v --cov=app
-```
-
-## 关键功能演示
-
-### 1) 上传文档 / 自动入库
-
-```bash
-curl -X POST http://localhost:8000/api/v1/documents/upload ^
-  -H "Authorization: Bearer YOUR_TOKEN" ^
-  -F "file=@./data/samples/handbook.pdf"
-```
-
-返回 `{ "doc_id": "...", "chunks": 87, "status": "indexed" }`
-
-### 2) 智能问答（流式）
-
-```bash
-curl -N http://localhost:8000/api/v1/chat/stream ^
-  -H "Authorization: Bearer YOUR_TOKEN" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"question\": \"产品的保修期是多久？\", \"kb_id\": \"default\"}"
-```
-
-### 3) 多 Agent 协作模式
-
-请求体 `{"mode": "agent", ...}`，后端执行 Planner / Retriever / Coder / Reviewer 全链路，返回带中间步骤的轨迹。
-
-### 4) 历史会话
-
-```bash
-# 列出
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8000/api/v1/history
-# 追加
-curl -X POST http://localhost:8000/api/v1/history/<sid>/append \
-  -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" \
-  -d '{"role": "user", "content": "hi"}'
-```
-
-### 5) 检索片段预览（前端 Sources 页用同一接口）
-
-```bash
-# 通过 SSE 取 source 事件, 或直接调 /api/v1/chat/stream 设置 question=关键词
-```
-
-## 项目结构
-
-```
-UniKB/
-+- backend/                # FastAPI 后端
-|  +- app/
-|  |  +- api/            # auth / chat / documents / history / health
-|  |  +- core/           # config / logging / security / observability
-|  |  +- rag/            # parser / chunker / embedding / retriever / reranker / pipeline
-|  |  +- agents/         # LangGraph 多 Agent + tools + llm_router
-|  |  +- mcp/            # MCP 工具集
-|  |  +- schemas/        # Pydantic 模型
-|  +- tests/              # 单元测试 (63 passed) + RAGAS 评估脚本
-|  +- Dockerfile
-|  +- requirements.txt
-+- frontend/               # Next.js 14 (app/ + components/ + lib/)
-|  +- app/{chat,upload,sources,history}/page.tsx
-|  +- components/{AuthBar,Nav}.tsx
-|  +- lib/api.ts
-+- docs/                   # 架构、选型、MCP 接入说明
-+- data/samples/           # 示例文档
-+- docker-compose.yml
-+- .github/workflows/      # CI + 镜像发布 (lint / pytest / 前端构建 / Docker / GHCR)
-+- LICENSE
-+- README.md
+# 全部
+python -m pytest -v
 ```
 
 ## 评估与质量
 
-```bash
-cd backend
-python -m tests.run_ragas_eval --kb default \
-    --dataset ../data/eval/qa.jsonl \
-    --out ../data/eval/ragas_report.json
+UniKB 集成了 [RAGAS](https://docs.ragas.io/) 做自动化评估, 覆盖 4 个核心指标:
+
+- **faithfulness**: 答案是否忠实于检索上下文(抑制幻觉)
+- **answer_relevancy**: 答案与问题的相关程度
+- **context_precision**: 检索结果里相关 chunk 的比例
+- **context_recall**: 回答问题所需信息被召回的比例
+
+### 最新 fake-LLM 评估结果
+
+> 下面数字来自 `data/eval/baseline.json`, 使用 fake LLM / fake embedding / fake 检索链路跑通, **仅用于验证评估脚本和链路本身, 不代表真实模型效果**。真实 baseline 需要换成 `real_llm` 模式并配置 API key。
+
+```json
+{
+  "generated_at": "2026-07-23T16:24:35.529926Z",
+  "llm_mode": "fake_llm",
+  "kb_id": "default",
+  "mode": "rag",
+  "n_samples": 34,
+  "scores": {
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.2975,
+    "context_precision": 1.0,
+    "context_recall": 1.0
+  },
+  "nan_metrics": []
+}
 ```
 
-输出 faithfulness / answer_relevancy / context_precision / context_recall 四个核心指标 + JSON 报告（含每条样本）。
+说明:
+
+- `faithfulness` / `context_precision` / `context_recall` 都是 1.0, 因为 fake judge 总是给出肯定 verdict, 这验证了 RAGAS parser 和 evaluate() 链路能正常结束。
+- `answer_relevancy` 只有 ~0.30, 是因为 fake embedding 用 32 维字符 hash 向量, 语义相似度基本是随机的; 真实模型下这个数字才有参考意义。
+
+### 跑评估
+
+```bash
+cd backend
+
+# fake 模式: 不需要 API key, 用于 CI / 沙箱验证
+python -m tests.run_ragas_eval --kb default \
+    --dataset ../data/eval/qa.jsonl \
+    --out ../data/eval/ragas_report.json \
+    --baseline-out ../data/eval/baseline.json \
+    --llm-mode fake_llm
+
+# 真实模型模式: 需要 .env 里配置 LLM_API_KEY
+python -m tests.run_ragas_eval --kb default \
+    --dataset ../data/eval/qa.jsonl \
+    --out ../data/eval/ragas_report.json \
+    --baseline-out ../data/eval/baseline.json \
+    --llm-mode real_llm
+```
+
+评估后会生成两个文件:
+
+- `data/eval/ragas_report.json`: 完整报告, 含每条样本的 question/answer/contexts/ground_truth
+- `data/eval/baseline.json`: 精简版, 只保留 scores + 元信息, 适合提交到仓库做 baseline 对比
 
 ## 可观测性（可选）
 

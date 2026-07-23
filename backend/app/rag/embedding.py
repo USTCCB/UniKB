@@ -1,6 +1,8 @@
 """Embedding service: sentence-transformers (default) + OpenAI (optional)."""
 from __future__ import annotations
 
+import hashlib
+import os
 from functools import lru_cache
 from typing import List
 
@@ -37,6 +39,32 @@ class EmbeddingService:
         return self.embed([text])[0]
 
 
+class FakeEmbeddingService:
+    """deterministic embedding: 字符哈希到 64 维, 不依赖 torch / sentence-transformers.
+
+    用在 CI / 沙箱 / 评估脚本验证链路通断. 行为类似 bge-small, 但语义质量远不如真模型.
+    """
+
+    dim = 64
+
+    def _vec(self, text: str) -> List[float]:
+        v = [0.0] * self.dim
+        for ch in text:
+            idx = int(hashlib.md5(ch.encode()).hexdigest(), 16) % self.dim
+            v[idx] += 1.0
+        norm = sum(x * x for x in v) ** 0.5 or 1.0
+        return [x / norm for x in v]
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
+        return [self._vec(t) for t in texts]
+
+    def embed_query(self, text: str) -> List[float]:
+        return self._vec(text)
+
+
 @lru_cache
-def get_embedding_service() -> EmbeddingService:
+def get_embedding_service() -> "EmbeddingService | FakeEmbeddingService":
+    if os.environ.get("UNIKB_FAKE_EMBEDDING", "").lower() in ("1", "true", "yes"):
+        logger.info("Using FakeEmbeddingService (UNIKB_FAKE_EMBEDDING=1)")
+        return FakeEmbeddingService()
     return EmbeddingService()

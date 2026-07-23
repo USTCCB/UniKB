@@ -1,8 +1,34 @@
-{"question": "UniKB 支持哪些大模型?", "ground_truth": "UniKB 通过 LLM_PROVIDER 配置支持 DeepSeek、Qwen、OpenAI 三家, 运行时可灵活切换。", "reference_context": ["UniKB 通过环境变量 LLM_PROVIDER 选择 deepseek/qwen/openai 中的任意一家, 调用时按 provider 拼装 base_url 与 model 即可。"]}
-{"question": "UniKB 的检索链路是怎么设计的?", "ground_truth": "BM25 + 向量双路召回, RRF 融合, 再过 Cross-Encoder 重排。", "reference_context": ["检索采用 BM25 + 向量语义双路召回, 经 RRF 融合, 再使用 BAAI/bge-reranker-base 重排, 显著提升长尾关键词召回率与事实准确率。"]}
-{"question": "如何把 UniKB 的工具暴露给 Claude Desktop?", "ground_truth": "通过 MCP 协议的 stdio 传输, 客户端配置 stdio 启动命令即可。", "reference_context": ["UniKB 通过 MCP 协议将工具集暴露为标准 server, stdio + SSE 双传输, 兼容 Claude Desktop、Cursor、Trae 等 AI 客户端。"]}
-{"question": "LangGraph 多 Agent 包含哪些节点?", "ground_truth": "Planner / Retriever / Coder / Reviewer 四个节点, 形成自检闭环。", "reference_context": ["基于 LangGraph 编排 Planner / Retriever / Coder / Reviewer 多 Agent 自检闭环, Reviewer 节点对 Coder 输出做置信度评估, 不通过则触发重试。"]}
-{"question": "如何部署 UniKB?", "ground_truth": "docker compose up -d 一键启动 backend + frontend + redis。", "reference_context": ["项目提供 docker-compose.yml, 包含 backend、frontend、redis 三个 service, 一行命令 docker compose up -d 即可启动完整链路。"]}
-{"question": "UniKB 怎么抑制模型幻觉?", "ground_truth": "Cross-Encoder 重排 + 多源引用溯源 + Reviewer 节点三道防线。", "reference_context": ["答案生成附带多源引用, 用户可点开核对原文; Reviewer 节点对生成结果做事实性自检, 必要时重试。"]}
-{"question": "默认的 Embedding 模型是什么?", "ground_truth": "BAAI/bge-small-zh-v1.5, 中文检索场景表现稳定。", "reference_context": ["EMBEDDING_MODEL 默认 BAAI/bge-small-zh-v1.5, 设备通过 EMBEDDING_DEVICE 控制 (cpu/cuda), 模型首次使用自动从 HuggingFace 下载。"]}
-{"question": "前端用的什么技术栈?", "ground_truth": "Next.js 14 + TypeScript + shadcn/ui。", "reference_context": ["前端采用 Next.js 14 App Router + TypeScript + Tailwind + shadcn/ui, 与后端通过 HTTPS/SSE 通信。"]}
+{"question": "产品的保修期是多久？", "ground_truth": "自购买日起一年免费保修。", "reference_context": ["本产品自购买日起享受一年免费保修。保修范围包括非人为损坏的硬件故障。"]}
+{"question": "几天内可以无理由退货？", "ground_truth": "7 天内无理由退货。", "reference_context": ["用户可在 7 天内无理由退货。"]}
+{"question": "几天内因质量问题可以换货？", "ground_truth": "15 天内因质量问题可换货。", "reference_context": ["15 天内因质量问题可换货。"]}
+{"question": "保修范围包括哪些？", "ground_truth": "非人为损坏的硬件故障。", "reference_context": ["保修范围包括非人为损坏的硬件故障。"]}
+{"question": "如何申请保修？", "ground_truth": "登录官网 → 我的订单 → 申请售后 → 提交故障描述与图片。", "reference_context": ["登录官网 → 我的订单 → 申请售后 → 提交故障描述与图片。"]}
+{"question": "支持哪些支付方式？", "ground_truth": "微信、支付宝、银联信用卡、企业月结。", "reference_context": ["支持微信、支付宝、银联信用卡、企业月结。"]}
+{"question": "一线城市配送时效是多久？", "ground_truth": "24 小时送达。", "reference_context": ["一线城市 24h 达。"]}
+{"question": "二线城市配送时效是多久？", "ground_truth": "48 小时送达。", "reference_context": ["二线城市 48h 达。"]}
+{"question": "偏远地区配送时效是多久？", "ground_truth": "3 到 5 个工作日。", "reference_context": ["偏远地区 3-5 个工作日。"]}
+{"question": "如果产品出现硬件故障怎么办？", "ground_truth": "在保修期内(购买后一年内)且非人为损坏可以申请免费保修,通过官网我的订单提交售后申请。", "reference_context": ["本产品自购买日起享受一年免费保修。保修范围包括非人为损坏的硬件故障。", "登录官网 → 我的订单 → 申请售后 → 提交故障描述与图片。"]}
+{"question": "企业客户能用什么方式支付？", "ground_truth": "企业月结, 另外还支持微信、支付宝、银联信用卡。", "reference_context": ["支持微信、支付宝、银联信用卡、企业月结。"]}
+{"question": "买完三天发现不喜欢,可以退吗？", "ground_truth": "可以, 7 天内支持无理由退货。", "reference_context": ["用户可在 7 天内无理由退货。"]}
+{"question": "买完十天出现质量问题,可以换货吗？", "ground_truth": "可以, 15 天内因质量问题可换货。", "reference_context": ["15 天内因质量问题可换货。"]}
+{"question": "保修流程的第一步是什么？", "ground_truth": "登录官网。", "reference_context": ["登录官网 → 我的订单 → 申请售后 → 提交故障描述与图片。"]}
+{"question": "配送到新疆大概多久？", "ground_truth": "偏远地区 3-5 个工作日。", "reference_context": ["偏远地区 3-5 个工作日。"]}
+{"question": "保修需要提交哪些信息？", "ground_truth": "故障描述与图片。", "reference_context": ["提交故障描述与图片。"]}
+{"question": "产品保修是人损坏也保吗？", "ground_truth": "不保, 只保非人为损坏。", "reference_context": ["保修范围包括非人为损坏的硬件故障。"]}
+{"question": "除了一年保修还有什么售后政策？", "ground_truth": "7 天无理由退货, 15 天内质量问题换货。", "reference_context": ["用户可在 7 天内无理由退货，15 天内因质量问题可换货。"]}
+{"question": "微信支付能用吗？", "ground_truth": "可以, 支持微信支付。", "reference_context": ["支持微信、支付宝、银联信用卡、企业月结。"]}
+{"question": "信用卡能用吗？", "ground_truth": "支持银联信用卡。", "reference_context": ["支持微信、支付宝、银联信用卡、企业月结。"]}
+{"question": "申请售后要去哪里？", "ground_truth": "官网的我的订单页面。", "reference_context": ["登录官网 → 我的订单 → 申请售后 → 提交故障描述与图片。"]}
+{"question": "三四线城市配送时效？", "ground_truth": "二线城市 48 小时, 偏远地区 3-5 个工作日。", "reference_context": ["二线城市 48h 达，偏远地区 3-5 个工作日。"]}
+{"question": "保修一定要提交图片吗？", "ground_truth": "是, 需要提交故障描述与图片。", "reference_context": ["提交故障描述与图片。"]}
+{"question": "除了硬件问题还能保什么？", "ground_truth": "只保非人为损坏的硬件故障, 其它不在保修范围。", "reference_context": ["保修范围包括非人为损坏的硬件故障。"]}
+{"question": "收货后多久内申请换货？", "ground_truth": "15 天内因质量问题可换货。", "reference_context": ["15 天内因质量问题可换货。"]}
+{"question": "保修是全国统一的吗？", "ground_truth": "手册未说明地域差异, 全国按统一政策: 一年保修, 7 天无理由退货, 15 天质量问题换货。", "reference_context": ["本产品自购买日起享受一年免费保修。", "用户可在 7 天内无理由退货，15 天内因质量问题可换货。"]}
+{"question": "保修期从哪天开始算？", "ground_truth": "自购买日起算。", "reference_context": ["本产品自购买日起享受一年免费保修。"]}
+{"question": "能换个颜色吗？", "ground_truth": "手册未涉及颜色相关条款, 仅列出 15 天内质量问题换货。", "reference_context": ["15 天内因质量问题可换货。"]}
+{"question": "国际订单也支持吗？", "ground_truth": "手册未提及国际订单, 仅描述国内一线/二线/偏远地区时效。", "reference_context": ["一线城市 24h 达，二线城市 48h 达，偏远地区 3-5 个工作日。"]}
+{"question": "支持货到付款吗？", "ground_truth": "手册列出的支付方式不含货到付款, 仅微信、支付宝、银联信用卡、企业月结。", "reference_context": ["支持微信、支付宝、银联信用卡、企业月结。"]}
+{"question": "缺货怎么办？", "ground_truth": "手册未说明缺货处理流程。", "reference_context": []}
+{"question": "保修期内的运费谁出？", "ground_truth": "手册未说明保修运费归属。", "reference_context": ["本产品自购买日起享受一年免费保修。保修范围包括非人为损坏的硬件故障。"]}
+{"question": "节假日配送时效会变吗？", "ground_truth": "手册未提及节假日影响, 仅给出一线 24h / 二线 48h / 偏远 3-5 工作日。", "reference_context": ["一线城市 24h 达，二线城市 48h 达，偏远地区 3-5 个工作日。"]}
+{"question": "发票怎么开？", "ground_truth": "手册未说明开票流程。", "reference_context": []}
