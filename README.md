@@ -215,7 +215,7 @@ UniKB/
 |  +- app/{chat,upload,sources,history}/page.tsx
 |  +- components/{AuthBar,Nav}.tsx
 |  +- lib/api.ts
-+- docs/                   # 架构、面试讲解
++- docs/                   # 架构、选型、MCP 接入说明
 +- data/samples/           # 示例文档
 +- docker-compose.yml
 +- .github/workflows/      # CI + 镜像发布 (lint / pytest / 前端构建 / Docker / GHCR)
