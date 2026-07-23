@@ -19,7 +19,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
 import types
@@ -83,7 +82,6 @@ _stub_langchain_community_vertexai()
 # 避免两边各写一份还容易漂.
 from tests._fakes import (  # noqa: E402
     FakeBM25Store,
-    FakeEmbeddingService,
     FakeLLM,
     FakeRagasEmbeddings,
     FakeRagasJudge,
