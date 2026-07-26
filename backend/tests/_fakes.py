@@ -102,6 +102,30 @@ class FakeBM25Store:
     def count(self):
         return len(self.docs)
 
+    def delete(self, ids):
+        ids_set = set(ids)
+        removed = 0
+        kept = []
+        for d in self.docs:
+            if d["id"] in ids_set:
+                removed += 1
+            else:
+                kept.append(d)
+        self.docs = kept
+        # 重算 df / avgdl
+        self._df.clear()
+        if self.docs:
+            self._avgdl = sum(len(tokenize(d["text"])) for d in self.docs) / len(self.docs)
+            for d in self.docs:
+                seen = set()
+                for tok in tokenize(d["text"]):
+                    if tok not in seen:
+                        self._df[tok] = self._df.get(tok, 0) + 1
+                        seen.add(tok)
+        else:
+            self._avgdl = 0.0
+        return removed
+
     def load(self):
         return None
 
@@ -163,6 +187,9 @@ class FakeVectorStore:
     def delete(self, ids):
         ids_set = set(ids)
         self.docs = [d for d in self.docs if d["id"] not in ids_set]
+
+    def get_ids_by_doc_id(self, doc_id: str) -> list[str]:
+        return [d["id"] for d in self.docs if d.get("metadata", {}).get("doc_id") == doc_id]
 
     def reset(self):
         self.docs = []

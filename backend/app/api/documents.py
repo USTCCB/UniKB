@@ -146,3 +146,30 @@ async def list_documents(kb_id: str = "default", user: str = Depends(get_current
         "bm25_count": retriever.bm25_store.count(),
         "vector_count": retriever.vector_store.count(),
     }
+
+
+@router.delete("/{doc_id}", summary="删除文档及其所有 chunk")
+async def delete_document(
+    doc_id: str,
+    kb_id: str = "default",
+    user: str = Depends(get_current_user),
+):
+    """删除指定 doc_id 的文档: 从 vector store / BM25 中移除其所有 chunk.
+
+    删除后 BM25 标记 dirty, 下次 query 时惰性重建, 避免立即重建拖慢响应.
+    """
+    ensure_kb_for_write(kb_id, user)
+    retriever = get_retriever(kb_id)
+    deleted = await asyncio.to_thread(retriever.delete_by_doc_id, doc_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="文档不存在或已删除")
+
+    # 顺手清理上传的原始文件 (如果还在)
+    try:
+        for f in _ensure_upload_dir().glob(f"{doc_id}.*"):
+            await asyncio.to_thread(f.unlink)
+    except Exception:
+        pass
+
+    logger.info(f"Deleted doc_id={doc_id} from kb={kb_id}, chunks={deleted}, user={user}")
+    return {"status": "deleted", "doc_id": doc_id, "kb_id": kb_id, "chunks_deleted": deleted}

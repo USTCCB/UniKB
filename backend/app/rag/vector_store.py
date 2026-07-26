@@ -70,6 +70,15 @@ class ChromaStore:
             after = col.count()
         return max(0, before - after)
 
+    def get_ids_by_doc_id(self, doc_id: str) -> List[str]:
+        """按 metadata.doc_id 查询并返回所有 chunk id."""
+        col = self._ensure()
+        try:
+            res = col.get(where={"doc_id": doc_id}, include=[])
+        except Exception:
+            return []
+        return res.get("ids", []) or []
+
     def count(self) -> int:
         col = self._ensure()
         return col.count()

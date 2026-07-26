@@ -104,6 +104,23 @@ class HybridRetriever:
             n_bm25 = self.bm25_store.delete(ids)
         return max(n_vec, n_bm25)
 
+    def delete_by_doc_id(self, doc_id: str) -> int:
+        """按 metadata.doc_id 删除整个文档的所有 chunk.
+
+        先从 BM25 内存 docs 中收集 chunk id (O(N) 但无需重建索引),
+        再同步删除 vector store 中同 doc_id 的 chunk.
+        删除后 BM25 dirty=True, 下次 query 按需惰性重建.
+        """
+        with self._write_lock:
+            ids_to_delete = [d["id"] for d in self.bm25_store.docs if d.get("metadata", {}).get("doc_id") == doc_id]
+            if not ids_to_delete:
+                # BM25 可能为空或尚未加载, 回退到 vector store 按 metadata 查询
+                ids_to_delete = self.vector_store.get_ids_by_doc_id(doc_id)
+            if ids_to_delete:
+                self.vector_store.delete(ids_to_delete)
+                self.bm25_store.delete(ids_to_delete)
+        return len(ids_to_delete)
+
     def retrieve(self, query: str, top_k: int | None = None) -> List[dict]:
         # CPU 密集: embedding + 两次召回 + RRF. 同步接口.
         # 读不需要锁; BM25 内部 _ensure_index 有 _rebuild_lock.
