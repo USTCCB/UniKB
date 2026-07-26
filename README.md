@@ -18,7 +18,10 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 - MCP 协议：原生支持 Model Context Protocol，可扩展工具集
 - 文档解析：PDF、DOCX、Markdown、TXT 与图片 OCR（图片 OCR 需要本机安装 Tesseract）
 - 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源
-- 工程化：JWT 鉴权 + API Key + Docker Compose 一键部署 + GitHub Actions CI + GHCR 镜像发布 CD
+- 工程化：JWT 鉴权（HttpOnly cookie + Bearer 双轨）+ Docker Compose 一键部署 + GitHub Actions CI + GHCR 镜像发布 CD
+- 安全加固：KB ACL 防越权、CORS 白名单、登录/Chat 限流、CSP/HSTS 安全响应头
+- 性能优化：同步 CPU/IO _OFFLOAD 到线程池、BM25 惰性重建、HybridRetriever 进程内缓存
+- 文档管理：上传大小限制、DELETE `/documents/{doc_id}` 删除并同步清理 vector/BM25
 - 可观测性：内置 LangFuse 对接（可选，关闭时无副作用）
 - 评估体系：集成 RAGAS 自动评估（4 大指标）
 
@@ -34,8 +37,8 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 | 向量库 | Chroma（轻量、可零配置） |
 | 检索 | BM25（rank_bm25）+ 向量 + RRF |
 | 重排 | Cross-Encoder（BAAI/bge-reranker-base） |
-| 数据库 | PostgreSQL（对话历史）/ SQLite（默认） |
-| 缓存 | Redis（Embedding / 热点问答） |
+| 数据库 | SQLite（用户/历史会话/文件元数据，SQLAlchemy 抽象，可切 PostgreSQL）+ Chroma 向量库 |
+| 缓存 | Redis（限流 / Embedding / 热点问答，可选） |
 | 文件 | 本地 / MinIO 可切换 |
 | 可观测 | LangFuse（可选） |
 | 评估 | RAGAS |
@@ -77,13 +80,18 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 
 | 类型 | 文件 | 覆盖点 | 运行条件 |
 |---|---|---|---|
-| 单元测试 | `test_*.py` (除 integration) | 算法/schema/auth/history/smoke/MCP noop 等 | 不依赖 torch / chromadb / sentence-transformers / 真实 LLM |
+| 单元测试 | `test_*.py` (除 integration) | auth/ACL/CORS/限流/JWT cookie/上传大小/BM25 惰性重建/retriever 缓存/reviewer JSON/文档删除 等 | 不依赖 torch / chromadb / sentence-transformers / 真实 LLM |
 | 集成测试 | `test_integration_retrieval.py` | HybridRetriever add/retrieve/delete + RRF + rerank + pipeline 端到端 + agent 模式 | 走 `tests/_fakes.py` fake 路径, 无需重包 |
 
 CI 已拆分为两个并行 job:
 
-- `backend-unit-test`: 跑 63 个单元测试 + lint + 覆盖率
+- `backend-unit-test`: 跑单元测试 + lint + 覆盖率
 - `backend-integration-test`: 跑 8 个集成测试, 验证完整检索/生成链路
+
+当前参考数据（会随测试增加变化）:
+
+- 单元测试：~238 passed
+- 集成测试：8 passed
 
 本地跑法:
 
@@ -183,8 +191,12 @@ RAG pipeline（retriever / reranker / llm）会自动写入 trace；不启用时
 - [x] RAGAS 自动评估脚本 + JSON 报告
 - [x] LangFuse 可观测（可选）
 - [x] Docker Compose 一键起 + healthcheck
-- [ ] 用户 / 知识库多租户
-- [ ] Postgres 迁移 SQLAlchemy
+- [x] 知识库 ACL + 用户/知识库隔离（P0）
+- [x] 安全加固：CORS 白名单、登录/Chat 限流、JWT HttpOnly cookie、CSP/HSTS（P0/P2）
+- [x] 性能优化：线程池 offload、BM25 惰性重建、Retriever 进程内缓存（P1）
+- [x] 用户表 SQLAlchemy 化（SQLite，可切换 PostgreSQL）（P2-12）
+- [x] 文档删除接口 + vector/BM25 同步清理（P2-13）
+- [ ] 对话历史/文件元数据统一 SQLAlchemy 迁移
 - [ ] MinIO 文件存储
 
 ## License
