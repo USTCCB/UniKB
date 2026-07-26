@@ -13,7 +13,7 @@ from app.api.deps import get_current_user
 from app.core.kb_registry import ensure_kb_for_read, ensure_kb_for_write
 from app.rag.chunker import TextChunker
 from app.rag.parser import DocumentParser
-from app.rag.retriever import HybridRetriever
+from app.rag.retriever import get_retriever
 from app.schemas.document import DocumentUploadResponse
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -63,7 +63,7 @@ async def upload_document(
         chunks = await asyncio.to_thread(TextChunker().split, text, doc_id=doc_id)
         if not chunks:
             raise HTTPException(status_code=400, detail="切片为空")
-        retriever = HybridRetriever(kb_id=kb_id)
+        retriever = get_retriever(kb_id)
         ids = [c.metadata["chunk_id"] for c in chunks]
         docs = [c.text for c in chunks]
         metas = [c.metadata | {"filename": file.filename, "user": user} for c in chunks]
@@ -87,7 +87,7 @@ async def upload_document(
 async def list_documents(kb_id: str = "default", user: str = Depends(get_current_user)):
     # ACL: 公共 kb 直接放行; 私有 kb 必须 owner == 当前用户
     ensure_kb_for_read(kb_id, user)
-    retriever = HybridRetriever(kb_id=kb_id)
+    retriever = get_retriever(kb_id)
     return {
         "kb_id": kb_id,
         "bm25_count": retriever.bm25_store.count(),

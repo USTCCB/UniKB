@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import List
+import threading
+from typing import Dict, List
 
 from loguru import logger
 
@@ -10,6 +11,33 @@ from app.core.config import settings
 from app.rag.bm25_store import BM25Store
 from app.rag.embedding import get_embedding_service
 from app.rag.vector_store import ChromaStore
+
+
+# 进程内 HybridRetriever 实例缓存 (按 kb_id).
+# 同一 kb 多次请求复用同一 ChromaStore/BM25Store, 避免每次新建 collection/重建 BM25.
+_INSTANCE_CACHE: Dict[str, "HybridRetriever"] = {}
+_INSTANCE_LOCK = threading.Lock()
+
+
+def get_retriever(kb_id: str = "default") -> "HybridRetriever":
+    """获取/创建 HybridRetriever 实例. 同 kb_id 永远返回同一实例.
+
+    线程安全: 用 _INSTANCE_LOCK 串行化创建, 避免 double-init race.
+    测试时可调 reset_retriever_cache() 清空.
+    """
+    with _INSTANCE_LOCK:
+        r = _INSTANCE_CACHE.get(kb_id)
+        if r is not None:
+            return r
+        r = HybridRetriever(kb_id=kb_id)
+        _INSTANCE_CACHE[kb_id] = r
+        return r
+
+
+def reset_retriever_cache() -> None:
+    """仅供测试: 清空实例缓存."""
+    with _INSTANCE_LOCK:
+        _INSTANCE_CACHE.clear()
 
 
 def rrf_fuse(rank_lists: List[List[dict]], k: int = 60) -> List[dict]:
@@ -47,12 +75,19 @@ class HybridRetriever:
         except Exception:
             pass
         self.embedding = get_embedding_service()
+        # 写并发锁: 上传 (add_documents) 与删除 (delete_documents) 都涉及
+        # embedding + 向量 upsert + BM25 add/delete, 串行化避免数据竞争.
+        # 读 (retrieve) 不需要这把锁 (Chroma query 自身线程安全; BM25 _ensure_index
+        # 内部有 _rebuild_lock).
+        self._write_lock = threading.Lock()
 
     def add_documents(self, ids: List[str], documents: List[str], metadatas: List[dict]):
-        # CPU 密集: embedding + 向量写入 + BM25 重建. 同步接口.
-        embeddings = self.embedding.embed(documents)
-        self.vector_store.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
-        self.bm25_store.add(ids=ids, documents=documents, metadatas=metadatas)
+        # CPU 密集: embedding + 向量写入 + BM25 add. 同步接口.
+        # 整个流程加锁, 避免两个上传线程同时改 BM25+Chroma.
+        with self._write_lock:
+            embeddings = self.embedding.embed(documents)
+            self.vector_store.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
+            self.bm25_store.add(ids=ids, documents=documents, metadatas=metadatas)
 
     async def add_documents_async(self, ids: List[str], documents: List[str], metadatas: List[dict]) -> None:
         """async 包装: 在 async 上下文里调用, 不会阻塞事件循环.
@@ -62,8 +97,16 @@ class HybridRetriever:
         """
         return await asyncio.to_thread(self.add_documents, ids, documents, metadatas)
 
+    def delete_documents(self, ids: List[str]) -> int:
+        """按 doc_id 删除 (含其下所有 chunk). 返回实际删除的 chunk 数."""
+        with self._write_lock:
+            n_vec = self.vector_store.delete(ids)
+            n_bm25 = self.bm25_store.delete(ids)
+        return max(n_vec, n_bm25)
+
     def retrieve(self, query: str, top_k: int | None = None) -> List[dict]:
         # CPU 密集: embedding + 两次召回 + RRF. 同步接口.
+        # 读不需要锁; BM25 内部 _ensure_index 有 _rebuild_lock.
         top_k = top_k or settings.top_k_final
         qv = self.embedding.embed_query(query)
         vec_hits = self.vector_store.query(qv, top_k=settings.top_k_vector)

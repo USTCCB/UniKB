@@ -14,7 +14,7 @@ from app.agents.llm_router import get_llm
 from app.api.deps import get_current_user
 from app.core.kb_registry import ensure_kb_for_read
 from app.core.rate_limit import check_chat_quota
-from app.rag.retriever import HybridRetriever
+from app.rag.retriever import get_retriever
 from app.rag.reranker import CrossEncoderReranker
 from app.schemas.chat import ChatRequest, ChatResponse, SourceItem
 
@@ -63,7 +63,7 @@ async def chat(req: ChatRequest, request: Request, user: str = Depends(get_curre
     _check_chat_quota_or_429(user, request)
     # ACL: 公共 kb 直接放行; 私有 kb 必须 owner == 当前用户 (403)
     ensure_kb_for_read(req.kb_id, user)
-    retriever = HybridRetriever(kb_id=req.kb_id)
+    retriever = get_retriever(req.kb_id)
     if req.mode == "agent":
         return await _chat_agent(req)
 
@@ -97,7 +97,7 @@ async def chat_stream(req: ChatRequest, request: Request, user: str = Depends(ge
     ensure_kb_for_read(req.kb_id, user)
     async def event_gen():
         try:
-            retriever = HybridRetriever(kb_id=req.kb_id)
+            retriever = get_retriever(req.kb_id)
             if req.mode == "agent":
                 graph = build_agent_graph()
                 from langchain_core.messages import HumanMessage
