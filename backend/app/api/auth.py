@@ -1,5 +1,10 @@
-"""Auth API: 极简注册 / 登录（演示用，生产请接企业 SSO / OAuth）。"""
+"""Auth API: 注册 / 登录（演示用，生产请接企业 SSO / OAuth）.
+
+P2-12: 用户表从内存 dict 迁移到 SQLite (SQLAlchemy).
+"""
 from __future__ import annotations
+
+import asyncio
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from loguru import logger
@@ -11,18 +16,13 @@ from app.core.rate_limit import (
     record_login_success,
 )
 from app.core.security import create_access_token, hash_password, verify_password
+from app.db import SessionLocal, User, create_tables, engine
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-# 内存用户表（演示）；生产请用 PostgreSQL + SQLAlchemy
-_USERS: dict[str, dict] = {}
-
-
-def reset_users_for_tests() -> None:
-    """仅供测试使用: 清空内存用户表, 让每个测试隔离."""
-    global _USERS
-    _USERS = {}
+# cookie 名
+_AUTH_COOKIE_NAME = "unikb_token"
 
 
 def _client_ip(request: Request) -> str:
@@ -35,8 +35,6 @@ def _client_ip(request: Request) -> str:
     return "unknown"
 
 
-# cookie 名
-_AUTH_COOKIE_NAME = "unikb_token"
 # cookie 在生产 (非 dev) 时, secure=True + samesite=strict.
 # dev 时 secure=False (因为 http://localhost:3000), samesite=lax (避免跨站干扰).
 def _set_auth_cookie(response: Response, token: str, expire_seconds: int) -> None:
@@ -65,16 +63,52 @@ def _clear_auth_cookie(response: Response) -> None:
     )
 
 
+def _get_user_by_username_sync(username: str) -> User | None:
+    db = SessionLocal()
+    try:
+        return db.query(User).filter(User.username == username).first()
+    finally:
+        db.close()
+
+
+def _create_user_sync(username: str, email: str, password: str) -> User:
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(User.username == username).first()
+        if existing:
+            raise ValueError("用户已存在")
+        user = User(
+            username=username,
+            email=email,
+            password_hash=hash_password(password),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    finally:
+        db.close()
+
+
+def reset_users_for_tests() -> None:
+    """仅供测试使用: 清空 SQLite users 表, 让每个测试隔离."""
+    create_tables()
+    db = SessionLocal()
+    try:
+        db.query(User).delete()
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.post("/register", response_model=TokenResponse)
 async def register(req: RegisterRequest, response: Response):
-    if req.username in _USERS:
-        raise HTTPException(status_code=400, detail="用户已存在")
-    _USERS[req.username] = {
-        "email": req.email,
-        "password_hash": hash_password(req.password),
-    }
+    try:
+        await asyncio.to_thread(_create_user_sync, req.username, req.email, req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     token = create_access_token(subject=req.username)
-    # 同时写 cookie (P2-11: HttpOnly, 避免 XSS 窃 token)
     _set_auth_cookie(response, token, settings.jwt_expire_minutes * 60)
     return TokenResponse(access_token=token, expires_in=settings.jwt_expire_minutes * 60)
 
@@ -89,10 +123,12 @@ async def login(req: LoginRequest, request: Request, response: Response):
             detail=decision.reason,
             headers={"Retry-After": str(int(decision.retry_after) + 1)},
         )
-    user = _USERS.get(req.username)
-    if not user or not verify_password(req.password, user["password_hash"]):
+
+    user = await asyncio.to_thread(_get_user_by_username_sync, req.username)
+    if not user or not verify_password(req.password, user.password_hash):
         record_login_failure(req.username, ip)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+
     record_login_success(req.username, ip)
     token = create_access_token(subject=req.username)
     _set_auth_cookie(response, token, settings.jwt_expire_minutes * 60)
@@ -124,6 +160,5 @@ async def dev_token(response: Response):
         raise HTTPException(status_code=403, detail="仅 dev 模式可用")
     logger.warning("/auth/dev-token 被调用, 颁发 dev-user token; 仅 dev 环境应启用此接口.")
     token = create_access_token(subject="dev-user")
-    # dev 也设 cookie, 方便前端用同一套流程测试
     _set_auth_cookie(response, token, cfg.jwt_expire_minutes * 60)
     return TokenResponse(access_token=token, expires_in=cfg.jwt_expire_minutes * 60)

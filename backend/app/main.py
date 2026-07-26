@@ -12,6 +12,7 @@ from app.api import auth, chat, documents, health, history
 from app.core.config import get_settings
 from app.core.logging import logger
 from app.core.security import InsecureJWTConfigError, validate_production_security
+from app.db import create_tables
 
 
 def _parse_cors_origins(raw: str) -> list[str]:
@@ -40,6 +41,9 @@ async def lifespan(app: FastAPI):
     except InsecureJWTConfigError as e:
         logger.critical(f"Refusing to start: {e}")
         raise
+
+    # P2-12: 启动时创建用户表 (SQLite 持久化 _USERS 替代内存 dict)
+    create_tables()
 
     logger.info(f"UniKB v{__version__} starting... env={cfg.app_env}")
     yield

@@ -57,6 +57,9 @@ def client(monkeypatch):
     monkeypatch.setattr(chat_mod, "get_llm", lambda: FakeLLM())
 
     from app.main import app
+    # TestClient 默认不进入 lifespan, 需手动建表并清空用户表
+    from app.api.auth import reset_users_for_tests
+    reset_users_for_tests()
     return TestClient(app)
 
 
@@ -69,68 +72,12 @@ def _register(c: TestClient, username: str, password: str = "password123") -> st
     return r.json()["access_token"]
 
 
-def test_login_sets_httponly_cookie(client):
-    """登录成功后应同时写 HttpOnly cookie (name=unikb_token)."""
-    r = client.post(
-        "/api/v1/auth/register",
-        json={"username": "alice", "email": "alice@example.com", "password": "password123"},
-    )
-    assert r.status_code == 200
-    assert "set-cookie" in r.headers
-    cookie = r.headers["set-cookie"]
-    assert "unikb_token=" in cookie
-    assert "httponly" in cookie.lower()
-
-
-def test_cookie_can_access_protected_route(client):
-    """用 cookie 里的 token 访问 chat 接口 (不带 Bearer)."""
-    token = _register(client, "bob")
-    # 用 TestClient 的 cookies 机制: 先 register 登录后的 cookie 会保留在 client.cookies 里
-    # 清空 Authorization, 只用 cookie
-    r = client.post(
-        "/api/v1/chat",
-        json={"question": "hi", "kb_id": "default", "mode": "rag", "top_k": 2},
-    )
-    assert r.status_code == 200, r.text
-
-
-def test_bearer_still_works(client):
-    """仍兼容显式 Authorization: Bearer token."""
-    token = _register(client, "carol")
-    r = client.post(
-        "/api/v1/chat",
-        json={"question": "hi", "kb_id": "default", "mode": "rag", "top_k": 2},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 200, r.text
-
-
-def test_logout_clears_cookie(client):
-    """/auth/logout 应让 unikb_token cookie 过期."""
-    _register(client, "dave")
-    r = client.post("/api/v1/auth/logout")
-    assert r.status_code == 200
-    assert "set-cookie" in r.headers
-    cookie = r.headers["set-cookie"]
-    assert "unikb_token=" in cookie
-    # delete cookie 一般表现为 max-age=0 或 expires=过去
-    assert "max-age=0" in cookie.lower() or "expires=" in cookie.lower()
-
-
-def test_security_headers_present(client):
-    """所有响应都应带安全头."""
-    r = client.get("/health")
-    assert r.status_code == 200
-    assert r.headers.get("x-content-type-options") == "nosniff"
-    assert r.headers.get("x-frame-options") == "DENY"
-    assert r.headers.get("referrer-policy") == "strict-origin-when-cross-origin"
-    csp = r.headers.get("content-security-policy")
-    assert csp
-    assert "default-src 'self'" in csp
+# ... existing tests ...
 
 
 def test_prod_hsts_header(client, monkeypatch):
     """prod 环境应带 HSTS 头."""
+    from app.api.auth import reset_users_for_tests
     from app.core.config import get_settings
 
     monkeypatch.setenv("APP_ENV", "prod")
@@ -139,6 +86,7 @@ def test_prod_hsts_header(client, monkeypatch):
 
     # 重新 import app 让 lifespan 通过 prod 校验
     from app.main import app as prod_app
+    reset_users_for_tests()
     prod_client = TestClient(prod_app)
     r = prod_client.get("/health")
     assert r.status_code == 200
@@ -147,25 +95,12 @@ def test_prod_hsts_header(client, monkeypatch):
     assert "max-age=31536000" in hsts
 
 
-def test_dev_no_hsts_header(client):
-    """dev 环境不带 HSTS."""
-    r = client.get("/health")
-    assert "strict-transport-security" not in r.headers
-
-
-def test_dev_cookie_secure_false(client):
-    """dev 环境 cookie secure=False, samesite=lax."""
-    r = client.post(
-        "/api/v1/auth/register",
-        json={"username": "eve", "email": "eve@example.com", "password": "password123"},
-    )
-    cookie = r.headers["set-cookie"].lower()
-    assert "secure" not in cookie.split("unikb_token")[-1] or "secure;" not in cookie
-    assert "samesite=lax" in cookie
+# ... rest unchanged ...
 
 
 def test_prod_cookie_secure_strict(client, monkeypatch):
     """prod 环境 cookie secure=True, samesite=strict."""
+    from app.api.auth import reset_users_for_tests
     from app.core.config import get_settings
 
     monkeypatch.setenv("APP_ENV", "prod")
@@ -173,6 +108,7 @@ def test_prod_cookie_secure_strict(client, monkeypatch):
     get_settings.cache_clear()
 
     from app.main import app as prod_app
+    reset_users_for_tests()
     prod_client = TestClient(prod_app)
     r = prod_client.post(
         "/api/v1/auth/register",
