@@ -1,6 +1,7 @@
 """Documents API: 上传、解析、切分、向量化、入库。"""
 from __future__ import annotations
 
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -54,19 +55,19 @@ async def upload_document(
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # 2) 解析 + 切分 + 入库
+    # 2) 解析 + 切分 + 入库 (CPU 密集: 解析+切分+embedding+向量/BM25 写盘)
     try:
-        text = DocumentParser().parse(str(dest))
+        text = await asyncio.to_thread(DocumentParser().parse, str(dest))
         if not text.strip():
             raise HTTPException(status_code=400, detail="文档内容为空或解析失败")
-        chunks = TextChunker().split(text, doc_id=doc_id)
+        chunks = await asyncio.to_thread(TextChunker().split, text, doc_id=doc_id)
         if not chunks:
             raise HTTPException(status_code=400, detail="切片为空")
         retriever = HybridRetriever(kb_id=kb_id)
         ids = [c.metadata["chunk_id"] for c in chunks]
         docs = [c.text for c in chunks]
         metas = [c.metadata | {"filename": file.filename, "user": user} for c in chunks]
-        retriever.add_documents(ids=ids, documents=docs, metadatas=metas)
+        await retriever.add_documents_async(ids=ids, documents=docs, metadatas=metas)
         logger.info(f"Indexed {file.filename} -> {len(chunks)} chunks (doc_id={doc_id})")
         return DocumentUploadResponse(
             doc_id=doc_id,

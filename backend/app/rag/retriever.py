@@ -1,6 +1,7 @@
 """混合检索：BM25 + 向量 + RRF 融合。"""
 from __future__ import annotations
 
+import asyncio
 from typing import List
 
 from loguru import logger
@@ -48,21 +49,28 @@ class HybridRetriever:
         self.embedding = get_embedding_service()
 
     def add_documents(self, ids: List[str], documents: List[str], metadatas: List[dict]):
-        # 1) Embedding
+        # CPU 密集: embedding + 向量写入 + BM25 重建. 同步接口.
         embeddings = self.embedding.embed(documents)
-        # 2) 向量库
         self.vector_store.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
-        # 3) BM25
         self.bm25_store.add(ids=ids, documents=documents, metadatas=metadatas)
 
+    async def add_documents_async(self, ids: List[str], documents: List[str], metadatas: List[dict]) -> None:
+        """async 包装: 在 async 上下文里调用, 不会阻塞事件循环.
+
+        用 asyncio.to_thread 把 CPU 密集型 embedding/序列化
+        卸到默认 threadpool, 让 FastAPI 的事件循环能继续处理其他请求.
+        """
+        return await asyncio.to_thread(self.add_documents, ids, documents, metadatas)
+
     def retrieve(self, query: str, top_k: int | None = None) -> List[dict]:
+        # CPU 密集: embedding + 两次召回 + RRF. 同步接口.
         top_k = top_k or settings.top_k_final
-        # 1) 向量召回
         qv = self.embedding.embed_query(query)
         vec_hits = self.vector_store.query(qv, top_k=settings.top_k_vector)
-        # 2) BM25 召回
         bm25_hits = self.bm25_store.query(query, top_k=settings.top_k_bm25)
-        # 3) RRF 融合
         fused = rrf_fuse([vec_hits, bm25_hits], k=60)
-        # 4) 截断到 top_k * 2 给 rerank
         return fused[: top_k * 2]
+
+    async def retrieve_async(self, query: str, top_k: int | None = None) -> List[dict]:
+        """async 包装: 在 async 上下文里调用, 不会阻塞事件循环."""
+        return await asyncio.to_thread(self.retrieve, query, top_k)

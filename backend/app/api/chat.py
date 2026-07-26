@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+import asyncio
 import json
 import uuid
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
@@ -12,9 +13,32 @@ from app.agents.graph import build_agent_graph
 from app.agents.llm_router import get_llm
 from app.api.deps import get_current_user
 from app.core.kb_registry import ensure_kb_for_read
+from app.core.rate_limit import check_chat_quota
 from app.rag.retriever import HybridRetriever
 from app.rag.reranker import CrossEncoderReranker
 from app.schemas.chat import ChatRequest, ChatResponse, SourceItem
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    if request.client:
+        return request.client.host or "unknown"
+    return "unknown"
+
+
+def _check_chat_quota_or_429(user: str, request: Request):
+    ip = _client_ip(request)
+    decision = check_chat_quota(user, ip)
+    if not decision.allowed:
+        from fastapi import HTTPException, status
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=decision.reason,
+            headers={"Retry-After": str(int(decision.retry_after) + 1)},
+        )
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -35,18 +59,23 @@ def _build_prompt(question, contexts):
 
 
 @router.post("", response_model=ChatResponse, summary="一次性问答")
-async def chat(req: ChatRequest, user: str = Depends(get_current_user)):
+async def chat(req: ChatRequest, request: Request, user: str = Depends(get_current_user)):
+    _check_chat_quota_or_429(user, request)
     # ACL: 公共 kb 直接放行; 私有 kb 必须 owner == 当前用户 (403)
     ensure_kb_for_read(req.kb_id, user)
     retriever = HybridRetriever(kb_id=req.kb_id)
     if req.mode == "agent":
         return await _chat_agent(req)
 
-    candidates = retriever.retrieve(req.question, top_k=req.top_k * 2)
-    reranked = CrossEncoderReranker().rerank(req.question, candidates, top_k=req.top_k)
+    # CPU 密集: 把 retriever.retrieve() 和 reranker.rerank() 卸到 threadpool,
+    # 让 FastAPI 事件循环在其他请求处理时不会被这两个同步调用阻塞.
+    candidates = await retriever.retrieve_async(req.question, top_k=req.top_k * 2)
+    reranked = await asyncio.to_thread(
+        CrossEncoderReranker().rerank, req.question, candidates, req.top_k,
+    )
     prompt = _build_prompt(req.question, reranked)
-    llm = get_llm()
-    resp = llm.invoke(prompt)
+    # LLM 调用也是阻塞型同步 SDK, 也卸到 threadpool.
+    resp = await asyncio.to_thread(get_llm().invoke, prompt)
     sources = []
     for c in reranked:
         meta = c.get("metadata") or {}
@@ -62,7 +91,8 @@ async def chat(req: ChatRequest, user: str = Depends(get_current_user)):
 
 
 @router.post("/stream", summary="SSE 流式问答")
-async def chat_stream(req: ChatRequest, user: str = Depends(get_current_user)):
+async def chat_stream(req: ChatRequest, request: Request, user: str = Depends(get_current_user)):
+    _check_chat_quota_or_429(user, request)
     # ACL: 进入流式生成前先校验, 避免生成到一半才抛 403
     ensure_kb_for_read(req.kb_id, user)
     async def event_gen():
@@ -83,8 +113,10 @@ async def chat_stream(req: ChatRequest, user: str = Depends(get_current_user)):
                 yield "data: {\"type\":\"done\"}\n\n"
                 return
 
-            candidates = retriever.retrieve(req.question, top_k=req.top_k * 2)
-            reranked = CrossEncoderReranker().rerank(req.question, candidates, top_k=req.top_k)
+            candidates = await retriever.retrieve_async(req.question, top_k=req.top_k * 2)
+            reranked = await asyncio.to_thread(
+                CrossEncoderReranker().rerank, req.question, candidates, req.top_k,
+            )
             for c in reranked:
                 payload = {
                     "type": "source",
@@ -96,9 +128,11 @@ async def chat_stream(req: ChatRequest, user: str = Depends(get_current_user)):
                 }
                 yield "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
             prompt = _build_prompt(req.question, reranked)
-            llm = get_llm()
-            for chunk in llm.stream(prompt):
-                token = getattr(chunk, "content", "") or ""
+            # LLM 流式调用也是阻塞型同步 SDK, 用线程池迭代.
+            # run_in_executor 返回迭代器本身是阻塞的, 我们用一个 async 包装,
+            # 让每轮 token 在 threadpool 里生成, 通过 queue 喂给 asyncio.
+            from app.core.streaming import sync_iter_to_async
+            async for token in sync_iter_to_async(get_llm().stream(prompt)):
                 if token:
                     yield "data: " + json.dumps({"type": "token", "data": {"text": token}}, ensure_ascii=False) + "\n\n"
             yield "data: {\"type\":\"done\"}\n\n"

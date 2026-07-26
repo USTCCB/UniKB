@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from loguru import logger
@@ -68,7 +69,9 @@ async def run_rag(
 
             with tracer.span(trace, "agent.invoke"):
                 graph = build_agent_graph()
-                result = graph.invoke(
+                # agent graph.invoke 是同步阻塞 (langgraph 同步实现), 卸到 threadpool.
+                result = await asyncio.to_thread(
+                    graph.invoke,
                     {
                         "messages": [HumanMessage(content=question)],
                         "plan": "",
@@ -76,7 +79,7 @@ async def run_rag(
                         "draft": "",
                         "final": "",
                         "trace": [],
-                    }
+                    },
                 )
             answer = result.get("final", "") or ""
             retrieved = result.get("retrieved", "") or ""
@@ -90,9 +93,12 @@ async def run_rag(
             }
 
         with tracer.span(trace, "retriever.hybrid"):
-            candidates = retriever.retrieve(question, top_k=top_k * 2)
+            # CPU 密集: 卸到 threadpool, 不阻塞事件循环.
+            candidates = await retriever.retrieve_async(question, top_k=top_k * 2)
         with tracer.span(trace, "reranker.cross_encoder"):
-            reranked = CrossEncoderReranker().rerank(question, candidates, top_k=top_k)
+            reranked = await asyncio.to_thread(
+                CrossEncoderReranker().rerank, question, candidates, top_k,
+            )
         contexts, ids, scores = _format_contexts(reranked, top_k)
 
         ctx_text = "\n\n".join(f"[{i + 1}] {c[:600]}" for i, c in enumerate(contexts))
@@ -101,7 +107,8 @@ async def run_rag(
         try:
             llm = get_llm()
             with tracer.span(trace, "llm.generate", model=settings.default_llm_model):
-                resp = llm.invoke(prompt)
+                # LLM 也是阻塞同步, 卸到 threadpool.
+                resp = await asyncio.to_thread(llm.invoke, prompt)
             answer = getattr(resp, "content", "") or str(resp)
             # 在 trace 上挂一次 generation(若启用)
             try:
