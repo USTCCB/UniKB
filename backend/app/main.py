@@ -8,13 +8,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api import auth, chat, documents, health, history
-from app.core.config import settings
+from app.core.config import get_settings
 from app.core.logging import logger
+from app.core.security import InsecureJWTConfigError, validate_production_security
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"UniKB v{__version__} starting... env={settings.app_env}")
+    # 通过 get_settings() 实时读取 (而不是模块级缓存), 这样部署时改 env
+    # 也能正确触发 fail-fast.
+    cfg = get_settings()
+    try:
+        validate_production_security(cfg)
+    except InsecureJWTConfigError as e:
+        logger.critical(f"Refusing to start: {e}")
+        raise
+
+    logger.info(f"UniKB v{__version__} starting... env={cfg.app_env}")
     yield
     logger.info("UniKB shutting down.")
 
@@ -43,6 +53,9 @@ app.include_router(history.router)
 
 if __name__ == "__main__":
     import uvicorn
+
+    from app.core.config import settings
+
     uvicorn.run(
         "app.main:app",
         host=settings.app_host,
