@@ -30,13 +30,14 @@ def test_planner_node_sets_plan(monkeypatch):
 
 
 def test_reviewer_node_accepts_cited_answer(monkeypatch):
-    """reviewer_node 在 LLM 返回 '通过' 时, state.final 等于 draft."""
+    """reviewer_node 在 LLM 返回 pass=true JSON 时, state.final 等于 draft."""
     calls = {"n": 0}
 
     class FakeLLM:
         def invoke(self, _msgs):
             calls["n"] += 1
-            return AIMessage(content="通过" if calls["n"] == 1 else "")
+            # 第一次: pass=true; 第二次 (rewrite) 不会被调用
+            return AIMessage(content='{"pass": true, "reason": "ok"}' if calls["n"] == 1 else "")
 
     monkeypatch.setattr("app.agents.graph.get_llm", FakeLLM)
     state: AgentState = {
@@ -53,7 +54,7 @@ def test_reviewer_node_accepts_cited_answer(monkeypatch):
 
 
 def test_reviewer_node_triggers_rewrite_on_reject(monkeypatch):
-    """LLM 返回非通过时, 第二次 invoke 会被调用来重写, state.final 是重写结果."""
+    """LLM 返回 pass=false JSON 时, 第二次 invoke 会被调用来重写, state.final 是重写结果."""
     state: AgentState = {
         "messages": [HumanMessage(content="q")],
         "plan": "",
@@ -70,9 +71,8 @@ def test_reviewer_node_triggers_rewrite_on_reject(monkeypatch):
         def invoke(self, _msgs):
             calls["n"] += 1
             if calls["n"] == 1:
-                # 注意: app/agents/graph.py 用 "通过" in out.content 判断,
-                # 所以拒绝词不能包含"通过"二字(如"不通过"会被误判为通过)
-                return AIMessage(content="缺少引用, 需要重写")
+                # reviewer JSON: pass=false, 给出 reason
+                return AIMessage(content='{"pass": false, "reason": "缺少引用, 需要重写"}')
             return AIMessage(content="改写后答案: 根据 [1], 答案是 X。")
 
     monkeypatch.setattr("app.agents.graph.get_llm", FakeLLM)
