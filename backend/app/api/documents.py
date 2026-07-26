@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from loguru import logger
 
 from app.api.deps import get_current_user
+from app.core.config import get_settings
 from app.core.kb_registry import ensure_kb_for_read, ensure_kb_for_write
 from app.rag.chunker import TextChunker
 from app.rag.parser import DocumentParser
@@ -25,6 +26,51 @@ def _ensure_upload_dir() -> Path:
     """延迟到每次请求都确保上传目录存在, 兼容测试时 chdir 到临时目录."""
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     return UPLOAD_DIR
+
+
+class _UploadTooLarge(Exception):
+    """超过 upload_max_bytes 时抛出, 由路由统一处理 413."""
+
+    def __init__(self, size: int, limit: int):
+        self.size = size
+        self.limit = limit
+        super().__init__(f"upload too large: {size} > {limit}")
+
+
+def _save_upload_bounded(file: UploadFile, dest: Path, limit: int) -> int:
+    """把上传流 copy 到 dest, 边写边累加, 超过 limit 立刻抛 _UploadTooLarge.
+
+    设计要点:
+    1. 不一次性 read() 整个文件, 避免 OOM.
+    2. 超过 limit 时立即停止, 不再消耗输入流 (尽可能让上游尽早失败).
+    3. 写入失败也要清理半成品文件.
+    """
+    total = 0
+    chunk = 1024 * 1024  # 1MB
+    try:
+        with dest.open("wb") as f:
+            while True:
+                buf = file.file.read(chunk)
+                if not buf:
+                    break
+                total += len(buf)
+                if total > limit:
+                    raise _UploadTooLarge(total, limit)
+                f.write(buf)
+    except _UploadTooLarge:
+        # 清理半成品, 不留垃圾文件
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    return total
 
 
 @router.post("/upload", response_model=DocumentUploadResponse, summary="上传文档并自动入库")
@@ -48,12 +94,19 @@ async def upload_document(
     #    公共 kb (settings.public_kb_ids, 默认 "default") 不允许写入.
     ensure_kb_for_write(kb_id, user)
 
-    # 1) 保存到本地
+    # 1) 保存到本地 (边写边校验大小, 超额立刻 413)
+    settings = get_settings()
     doc_id = f"doc_{uuid.uuid4().hex[:12]}"
     upload_dir = _ensure_upload_dir()
     dest = upload_dir / f"{doc_id}{suffix}"
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        await asyncio.to_thread(_save_upload_bounded, file, dest, settings.upload_max_bytes)
+    except _UploadTooLarge as e:
+        logger.warning(f"upload too large: user={user} size={e.size} limit={e.limit} filename={file.filename}")
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大: {e.size} 字节, 上限 {e.limit} 字节",
+        )
 
     # 2) 解析 + 切分 + 入库 (CPU 密集: 解析+切分+embedding+向量/BM25 写盘)
     try:

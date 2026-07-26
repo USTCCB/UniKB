@@ -76,6 +76,22 @@ class Settings(BaseSettings):
     # 默认含 "default" 以兼容 demo.
     public_kb_ids: str = "default"
 
+    # ===== CORS =====
+    # 允许跨域的前端 origin 白名单 (逗号分隔 / JSON 数组).
+    # 严禁 "*" + credentials=True (违反 CORS 规范, 也是明显的安全反模式).
+    # 多个 origin 用逗号分隔, 例如 "http://localhost:3000,https://app.example.com"
+    cors_allowed_origins: str = "http://localhost:3000"
+
+    # ===== Rate Limit =====
+    # 同一账号 login 失败 5 次 / 5 分钟, 锁定 15 分钟 (返回 429).
+    rate_limit_login_window_sec: int = 300
+    rate_limit_login_fail_max: int = 5
+    rate_limit_login_lock_sec: int = 900
+    # chat 接口每用户每分钟请求上限 (默认 20).
+    rate_limit_chat_per_min: int = 20
+    # 是否启用限流 (测试时可关掉以免 flaky)
+    rate_limit_enabled: bool = True
+
     # ===== MCP =====
     mcp_enabled: bool = True
     mcp_servers_config: str = "./mcp_servers.json"
@@ -94,6 +110,11 @@ class Settings(BaseSettings):
     top_k_vector: int = 20
     top_k_bm25: int = 20
     top_k_final: int = 5
+
+    # ===== Upload =====
+    # 单文件最大字节数, 防止恶意上传把磁盘填爆或拖死 embedding.
+    # 默认 25MB, 可通过环境变量调整. 超出时返回 413.
+    upload_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
 
     def get_llm_api_key(self, provider: str) -> Optional[str]:
         return {
