@@ -14,13 +14,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.agents.graph import (
     REVIEWER_SYS,
     _normalize_decision,
     _parse_reviewer_decision,
-    reviewer_node,
 )
 
 

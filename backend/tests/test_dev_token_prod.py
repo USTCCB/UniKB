@@ -7,10 +7,8 @@
 """
 from __future__ import annotations
 
-import logging
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings

@@ -174,7 +174,7 @@ def test_http_login_lock_after_failures(monkeypatch):
 
 def test_http_login_success_resets_failure_counter(monkeypatch):
     c = _client_with_fakes(monkeypatch)
-    token = _register(c, "alice")
+    _register(c, "alice")
 
     # 几次失败
     for _ in range(2):

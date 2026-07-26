@@ -12,7 +12,6 @@
 """
 from __future__ import annotations
 
-import os
 import threading
 from pathlib import Path
 
@@ -60,7 +59,7 @@ def test_multiple_adds_only_rebuild_once(store):
     assert store._bm25 is not None
     # 再 query 一次, 不应再次 build (dirty=False)
     bm25_before = store._bm25
-    hits2 = store.query("hello")
+    _ = store.query("hello")
     assert store._bm25 is bm25_before
 
 
