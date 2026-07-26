@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { API_BASE, getStoredToken } from "@/lib/api";
+import { API_BASE, getStoredUser } from "@/lib/api";
 
 type DocChunk = {
   id: string;
@@ -10,7 +10,7 @@ type DocChunk = {
 };
 
 export default function SourcesPage() {
-  const [token, setToken] = useState("");
+  const [user, setUser] = useState("");
   const [q, setQ] = useState("");
   const [results, setResults] = useState<DocChunk[]>([]);
   const [loading, setLoading] = useState(false);
@@ -18,19 +18,19 @@ export default function SourcesPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setToken(getStoredToken());
+    setUser(getStoredUser());
   }, []);
 
   async function search() {
-    if (!q.trim() || !token) return;
+    if (!q.trim()) return;
     setLoading(true);
     setError("");
     try {
-      // 通过 RAG 流接口的 source 事件拉取, 更轻量: 直接走 chat/stream 但只关心 sources
-      // 实际做法: 调用一个独立的检索接口 (下面 inline 了一个轻量 endpoint), 这里用 chat/stream 的 source 事件
+      // P2-11: 通过 cookie 自动带 token, 不用手动 Authorization.
       const res = await fetch(`${API_BASE}/api/v1/chat/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q, kb_id: "default", top_k: topK, mode: "rag" }),
       });
       if (!res.body) throw new Error("no body");
@@ -70,7 +70,7 @@ export default function SourcesPage() {
     }
   }
 
-  if (!token) {
+  if (!user) {
     return (
       <div className="card">
         <div className="muted">请先登录。</div>

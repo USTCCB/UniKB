@@ -1,4 +1,4 @@
-// 统一的 API 客户端, 自动带 token
+// 统一的 API 客户端, 自动带 token (HttpOnly cookie + credentials: include)
 const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 export type Source = {
@@ -32,9 +32,18 @@ export type SessionDetail = SessionMeta & {
   messages: HistoryMessage[];
 };
 
+// P2-11: 优先用 HttpOnly cookie 传输 JWT; 同时保留 Bearer header 兼容.
+// fetch 设 credentials: 'include', 让浏览器自动带上后端写的 cookie.
+// 对已有 token (例如从 localStorage 迁移 / dev-token 手动输入) 仍走 Authorization.
 function authHeaders(token?: string): HeadersInit {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  const h: HeadersInit = {};
+  if (token) {
+    h["Authorization"] = `Bearer ${token}`;
+  }
+  return h;
 }
+
+const fetchInit: RequestInit = { credentials: "include" };
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -47,6 +56,7 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 // ----- Auth -----
 export async function register(username: string, email: string, password: string): Promise<{ access_token: string }> {
   return jsonOrThrow(await fetch(`${API}/api/v1/auth/register`, {
+    ...fetchInit,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, email, password }),
@@ -55,14 +65,22 @@ export async function register(username: string, email: string, password: string
 
 export async function login(username: string, password: string): Promise<{ access_token: string }> {
   return jsonOrThrow(await fetch(`${API}/api/v1/auth/login`, {
+    ...fetchInit,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   }));
 }
 
+export async function logout(): Promise<void> {
+  await fetch(`${API}/api/v1/auth/logout`, {
+    ...fetchInit,
+    method: "POST",
+  });
+}
+
 export async function devToken(): Promise<{ access_token: string }> {
-  return jsonOrThrow(await fetch(`${API}/api/v1/auth/dev-token`, { method: "POST" }));
+  return jsonOrThrow(await fetch(`${API}/api/v1/auth/dev-token`, { ...fetchInit, method: "POST" }));
 }
 
 // ----- Chat (SSE 流式) -----
@@ -75,6 +93,7 @@ export async function* streamChat(params: {
   mode?: ChatMode;
 }): AsyncGenerator<{ type: string; data: unknown }> {
   const res = await fetch(`${API}/api/v1/chat/stream`, {
+    ...fetchInit,
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders(params.token) },
     body: JSON.stringify({
@@ -115,6 +134,7 @@ export async function uploadDocument(token: string, file: File, kb_id = "default
   fd.append("file", file);
   return jsonOrThrow<{ doc_id: string; filename: string; chunks: number; status: string; message?: string }>(
     await fetch(`${API}/api/v1/documents/upload?kb_id=${encodeURIComponent(kb_id)}`, {
+      ...fetchInit,
       method: "POST",
       headers: authHeaders(token),
       body: fd,
@@ -125,6 +145,7 @@ export async function uploadDocument(token: string, file: File, kb_id = "default
 export async function listDocuments(token: string, kb_id = "default") {
   return jsonOrThrow<{ kb_id: string; bm25_count: number; vector_count: number }>(
     await fetch(`${API}/api/v1/documents/list?kb_id=${encodeURIComponent(kb_id)}`, {
+      ...fetchInit,
       headers: authHeaders(token),
     }),
   );
@@ -133,19 +154,20 @@ export async function listDocuments(token: string, kb_id = "default") {
 // ----- History -----
 export async function listSessions(token: string): Promise<SessionMeta[]> {
   return jsonOrThrow(
-    await fetch(`${API}/api/v1/history`, { headers: authHeaders(token) }),
+    await fetch(`${API}/api/v1/history`, { ...fetchInit, headers: authHeaders(token) }),
   );
 }
 
 export async function getSession(token: string, session_id: string): Promise<SessionDetail> {
   return jsonOrThrow(
-    await fetch(`${API}/api/v1/history/${session_id}`, { headers: authHeaders(token) }),
+    await fetch(`${API}/api/v1/history/${session_id}`, { ...fetchInit, headers: authHeaders(token) }),
   );
 }
 
 export async function createSession(token: string, payload: { title?: string; kb_id?: string; mode?: string } = {}) {
   return jsonOrThrow<{ session_id: string }>(
     await fetch(`${API}/api/v1/history`, {
+      ...fetchInit,
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(token) },
       body: JSON.stringify(payload),
@@ -156,6 +178,7 @@ export async function createSession(token: string, payload: { title?: string; kb
 export async function appendMessage(token: string, session_id: string, msg: HistoryMessage) {
   return jsonOrThrow<{ session_id: string; message_count: number }>(
     await fetch(`${API}/api/v1/history/${session_id}/append`, {
+      ...fetchInit,
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders(token) },
       body: JSON.stringify(msg),
@@ -166,6 +189,7 @@ export async function appendMessage(token: string, session_id: string, msg: Hist
 export async function deleteSession(token: string, session_id: string) {
   return jsonOrThrow(
     await fetch(`${API}/api/v1/history/${session_id}`, {
+      ...fetchInit,
       method: "DELETE",
       headers: authHeaders(token),
     }),
@@ -175,12 +199,13 @@ export async function deleteSession(token: string, session_id: string) {
 export const API_BASE = API;
 
 // ----- 客户端 token 存储 (与 AuthBar 共享) -----
-const TOKEN_KEY = "unikb.token";
+// P2-11: 迁移到 HttpOnly cookie 作为主要 token 载体; localStorage 仅做用户昵称等
+// 非敏感信息, 不再存 token.
 const USER_KEY = "unikb.user";
 
 export function getStoredToken(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(TOKEN_KEY) || "";
+  // 不再从 localStorage 读 token. 返回空, 让 fetch 依赖 cookie.
+  return "";
 }
 
 export function getStoredUser(): string {
@@ -190,14 +215,15 @@ export function getStoredUser(): string {
 
 export function setStoredToken(token: string, user: string): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, token);
+  // token 已写入 HttpOnly cookie (后端完成). 前端只保留用户名.
   localStorage.setItem(USER_KEY, user);
   window.dispatchEvent(new Event("unikb:auth"));
 }
 
 export function clearStoredAuth(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   window.dispatchEvent(new Event("unikb:auth"));
+  // cookie 由后端 /auth/logout 清除; 这里也尝试触发一下 (可选)
+  fetch(`${API_BASE}/api/v1/auth/logout`, { ...fetchInit, method: "POST" }).catch(() => {});
 }

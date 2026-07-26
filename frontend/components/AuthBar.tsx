@@ -1,9 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { clearStoredAuth, devToken, login, register, setStoredToken, getStoredToken, getStoredUser } from "@/lib/api";
+import { clearStoredAuth, devToken, login, register, setStoredToken, getStoredUser } from "@/lib/api";
 
 export default function AuthBar() {
-  const [token, setToken] = useState("");
   const [user, setUser] = useState("");
   const [mode, setMode] = useState<"dev" | "login" | "register">("dev");
   const [username, setUsername] = useState("");
@@ -14,7 +13,6 @@ export default function AuthBar() {
 
   useEffect(() => {
     const sync = () => {
-      setToken(getStoredToken());
       setUser(getStoredUser());
     };
     sync();
@@ -38,6 +36,7 @@ export default function AuthBar() {
         resp = await register(username, email, password);
         u = username;
       }
+      // token 已写入 HttpOnly cookie (后端完成); 前端只保留用户名.
       setStoredToken(resp.access_token, u);
       setPassword("");
     } catch (e: any) {
@@ -49,9 +48,10 @@ export default function AuthBar() {
 
   function logout() {
     clearStoredAuth();
+    setUser("");
   }
 
-  if (token) {
+  if (user) {
     return (
       <div className="authbar">
         <span className="muted">当前用户</span>
