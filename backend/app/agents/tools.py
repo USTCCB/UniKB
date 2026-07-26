@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tools available to agents: retrieval + calculator + current_date."""
 from __future__ import annotations
 from langchain_core.tools import tool
@@ -9,6 +8,7 @@ from app.rag.bm25_store import BM25Store
 from app.rag.reranker import CrossEncoderReranker
 from app.rag.retriever import rrf_fuse
 from app.core.config import settings
+from app.agents.safe_eval import safe_eval, SafeEvalError
 
 
 def build_tools(kb_id="default"):
@@ -42,12 +42,11 @@ def build_tools(kb_id="default"):
 
     @tool
     def calculator(expression: str) -> str:
-        "安全计算数学表达式。"
-        import math
-        allowed = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
-        allowed.update({"abs": abs, "round": round, "min": min, "max": max, "sum": sum})
+        "安全计算数学表达式: 支持 + - * / // % **, 一元正负号, math 模块常用函数."
         try:
-            return str(eval(expression, {"__builtins__": {}}, allowed))
+            return str(safe_eval(expression))
+        except SafeEvalError as e:
+            return "计算失败: " + str(e)
         except Exception as e:
             return "计算失败: " + str(e)
 
