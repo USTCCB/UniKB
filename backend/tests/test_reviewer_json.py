@@ -164,24 +164,37 @@ def test_reviewer_pass_keeps_draft(monkeypatch):
 
 
 def test_reviewer_fail_triggers_fix(monkeypatch):
-    """pass=False 时 final != draft (fix 重写)."""
+    """pass=False 时 reviewer_node 只记录决策, **不会** 在节点内部再调一次 LLM 重写 -- 真正的
+    "修正"路径是通过 `add_conditional_edges` 回到 retriever 重新检索.
+    这里验证:
+    1. fake_llm.invoke 只被调一次 (只有审查, 没有就地 fix).
+    2. trace 留了 pass=False 的 decision.
+    3. last_reviewer_reason 也写到 state 里, 方便 route_review 决定要不要回到 retriever.
+    4. final 默认等于 draft (因为图结构会让 retriever -> coder 重新跑一次, 那里再覆盖).
+    """
     from app.agents import graph
 
     state = _make_state("draft content", '{"pass": false, "reason": "需要引用"}', "fixed content")
     fake_llm = _patch_get_llm(
         monkeypatch,
         '{"pass": false, "reason": "需要引用"}',
-        "fixed content",
+        "fixed content",  # 这次不会被用到 -- 审查节点的决策被 graph 回环接手.
     )
 
     out = graph.reviewer_node(state)
-    # 调了第二次 llm.invoke (fix)
-    assert fake_llm.invoke.call_count == 2
-    assert out["final"] == "fixed content"
+    # 关键: reviewer_node 不再就地重写, 只调一次 invoke.
+    assert fake_llm.invoke.call_count == 1
+    # 审查节点自己写 final=draft; route_review 看到 pass=False, 把图送回 retriever,
+    # 等重新跑到 coder/reviewer 时再覆盖 final. 这里先验证 trace 与 state 信号.
+    assert out["final"] == "draft content"
+    assert out.get("last_reviewer_reason") == "需要引用"
     # trace 里有 reason
     rev = [t for t in out["trace"] if t["role"] == "reviewer"]
     assert rev[0]["content"]["decision"]["pass"] is False
     assert rev[0]["content"]["decision"]["reason"] == "需要引用"
+    # 顺便验证 route_review 会选 "retry" 路径 (而不是 END).
+    decision_route = graph.route_review(out)
+    assert decision_route == "retry"
 
 
 def test_reviewer_malformed_falls_back_to_pass(monkeypatch):

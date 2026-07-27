@@ -12,7 +12,7 @@ from loguru import logger
 from app.agents.llm_router import get_llm
 from app.core.config import settings
 from app.core.observability import get_tracer
-from app.rag.reranker import CrossEncoderReranker
+from app.rag.reranker import get_reranker
 from app.rag.retriever import HybridRetriever
 
 
@@ -74,11 +74,16 @@ async def run_rag(
                     graph.invoke,
                     {
                         "messages": [HumanMessage(content=question)],
+                        # 关键: 把 kb_id 显式塞进 state, 让 retriever_node 走正确 kb,
+                        # 否则会默认走 "default", 架空 private kb 的 ACL.
+                        "kb_id": kb_id,
                         "plan": "",
                         "retrieved": "",
                         "draft": "",
                         "final": "",
                         "trace": [],
+                        "retry_count": 0,
+                        "last_reviewer_reason": "",
                     },
                 )
             answer = result.get("final", "") or ""
@@ -97,7 +102,7 @@ async def run_rag(
             candidates = await retriever.retrieve_async(question, top_k=top_k * 2)
         with tracer.span(trace, "reranker.cross_encoder"):
             reranked = await asyncio.to_thread(
-                CrossEncoderReranker().rerank, question, candidates, top_k,
+                get_reranker().rerank, question, candidates, top_k,
             )
         contexts, ids, scores = _format_contexts(reranked, top_k)
 

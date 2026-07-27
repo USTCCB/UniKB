@@ -18,9 +18,9 @@ Planner → Retriever → Coder → Reviewer
               ↑_______________|
 ```
 
-当 Reviewer 发现引用缺失或答案不完整时, 直接回到 Retriever 重新检索, 而不是让 LLM 硬编。这个回环用 LangGraph 的 `add_conditional_edges` 表达很自然; 用普通 if-else 写也能跑, 但状态字段会散得到处都是, 调试时很痛苦。
+当 Reviewer 发现引用缺失或答案不完整时, 直接通过 `add_conditional_edges` 回到 Retriever 重新检索, 而不是让 LLM 硬编。当前实现里这条路用 LangGraph 的 `add_conditional_edges("reviewer", route_review, {"retry": "retriever", "pass": END})` 显式表达 — `route_review` 是一个 **图级** conditional edge, 它读 `state["trace"]` 末位 reviewer 的 `{"pass": bool, "reason": ...}`, 然后返回 `"retry"` 或 `"pass"`, 让图结构去选择下一跳。这是真正的图回环, 不是 reviewer 节点内部"就地调用 LLM 改写"再返回 (老实现)。同时有 `MAX_REVIEWER_RETRIES = 2` 上限, 即使 LLM 一直判 retry, 也不会死循环; 超过阈值会强制走 END, 并把 reason 拼到 `final` 给用户。
 
-另一个真实需求是 **Human-in-the-loop**。Reviewer 判断"需要人工确认"时, 我们用 `interrupt_before={"coder"}` 把控制权交还用户。这个能力在生产审核场景里不是锦上添花, 是刚需。
+另一个早期设想过的是 **Human-in-the-loop**, 即 reviewer 判断"需要人工确认"时, 用 `interrupt_before={"coder"}` 把控制权交还用户。当前 **没有** 接入 — 留下的 TODO 在 `app/agents/graph.py` 顶部注释里, 等真的接审核工作流时再实现 (需要 `langgraph.checkpoint` + `astream_events` 双开)。文档里不再宣称"已实现"。
 
 **不选 AutoGen / CrewAI 的原因**: AutoGen 的群聊模型里, 谁能发言、发言顺序很难控制; CrewAI 的 Agent 抽象太黑盒, 出问题只能打日志猜。我们需要的是"状态机 + 可观测", 不是"多 Agent 对话"。
 
@@ -87,6 +87,8 @@ SSE 是 HTTP 的一部分, 前端用 `EventSource` 即可, 后端 FastAPI 用 `S
 ## 6. MCP: 一条协议对接所有客户端, 但 transport  still 让人头疼
 
 MCP 让我们可以只实现一次工具集(检索、上传、历史等), 然后 Claude Desktop、Cursor、Trae、Cline 都能调用。这是我们选它的核心理由。
+
+需要澄清一点: **当前 UniKB 的 MCP 是单向的——我们把内部工具暴露为 MCP Server 给外部客户端调用** (`app/mcp/server.py` 的 `build_mcp_server(kb_id)` + stdio 入口)。Agent 内部并没有作为 MCP Client 去消费任何外部 MCP 工具 (例如天气 MCP、数据库 MCP 等), 所以读"UniKB 是双向 MCP 集成"会是误解; 真要做双向需要引入 MCP Client + JSON-RPC 反向 channel, 我们目前没接。
 
 但实际做下来发现, **transport 比协议本身更麻烦**:
 

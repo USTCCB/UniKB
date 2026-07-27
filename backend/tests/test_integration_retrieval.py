@@ -47,18 +47,16 @@ def _install_fakes(monkeypatch):
 
     monkeypatch.setattr(vs_mod, "ChromaStore", FakeVectorStore)
     monkeypatch.setattr(bm_mod, "BM25Store", FakeBM25Store)
-    monkeypatch.setattr(rk_mod, "CrossEncoderReranker", FakeReranker)
+    # P1-3 重构后 reranker 走 get_reranker() 单例, 把 3 个模块里的函数指针都替掉.
+    monkeypatch.setattr(rk_mod, "get_reranker", lambda *_a, **_k: FakeReranker())
     monkeypatch.setattr(emb_mod, "EmbeddingService", FakeEmbeddingService)
     monkeypatch.setattr(llm_router, "get_llm", lambda: _StubPipelineLLM())
     # 关键: 覆盖 retriever 模块里被 capture 的两个类引用.
     monkeypatch.setattr(rt_mod, "ChromaStore", FakeVectorStore)
     monkeypatch.setattr(rt_mod, "BM25Store", FakeBM25Store)
 
-    # pipeline.py 也是 `from ... import`, 必须把 pipeline 命名空间里的 CrossEncoderReranker
-    # 也替掉, 不然它会懒加载 sentence_transformers.CrossEncoder.
     from app.rag import pipeline as pl_mod
-
-    monkeypatch.setattr(pl_mod, "CrossEncoderReranker", FakeReranker)
+    monkeypatch.setattr(pl_mod, "get_reranker", lambda *_a, **_k: FakeReranker())
 
     yield
     emb_mod.get_embedding_service.cache_clear()

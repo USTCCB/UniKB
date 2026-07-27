@@ -5,7 +5,7 @@ from langchain_core.tools import tool
 from app.rag.embedding import get_embedding_service
 from app.rag.vector_store import ChromaStore
 from app.rag.bm25_store import BM25Store
-from app.rag.reranker import CrossEncoderReranker
+from app.rag.reranker import get_reranker
 from app.rag.retriever import rrf_fuse
 from app.core.config import settings
 from app.agents.safe_eval import safe_eval, SafeEvalError
@@ -19,7 +19,8 @@ def build_tools(kb_id="default"):
         bm25_store.load()
     except Exception:
         pass
-    reranker = CrossEncoderReranker()
+    # 用 get_reranker() 单例, 避免每个请求都重新加载模型.
+    reranker = get_reranker()
 
     @tool
     def hybrid_search(query: str, top_k: int = 5) -> str:

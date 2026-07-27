@@ -2,6 +2,8 @@
 from __future__ import annotations
 import asyncio
 import json
+import queue
+import threading
 import uuid
 from typing import AsyncIterator
 
@@ -15,7 +17,7 @@ from app.api.deps import get_current_user
 from app.core.kb_registry import ensure_kb_for_read
 from app.core.rate_limit import check_chat_quota
 from app.rag.retriever import get_retriever
-from app.rag.reranker import CrossEncoderReranker
+from app.rag.reranker import get_reranker
 from app.schemas.chat import ChatRequest, ChatResponse, SourceItem
 
 
@@ -71,7 +73,7 @@ async def chat(req: ChatRequest, request: Request, user: str = Depends(get_curre
     # 让 FastAPI 事件循环在其他请求处理时不会被这两个同步调用阻塞.
     candidates = await retriever.retrieve_async(req.question, top_k=req.top_k * 2)
     reranked = await asyncio.to_thread(
-        CrossEncoderReranker().rerank, req.question, candidates, req.top_k,
+        get_reranker().rerank, req.question, candidates, req.top_k,
     )
     prompt = _build_prompt(req.question, reranked)
     # LLM 调用也是阻塞型同步 SDK, 也卸到 threadpool.
@@ -99,23 +101,84 @@ async def chat_stream(req: ChatRequest, request: Request, user: str = Depends(ge
         try:
             retriever = get_retriever(req.kb_id)
             if req.mode == "agent":
-                graph = build_agent_graph()
+                # ----- agent 分支: 严格 offload + 按节点推 trace (真实"流") -----
+                # graph.invoke 是同步阻塞 (langgraph 同步实现), 必须卸到 threadpool,
+                # 否则会卡住 FastAPI 事件循环, 这是 P1 offload fix 的最低要求.
+                # 进一步: 用 graph.stream() 在 threadpool 内部每跑完一个节点, 就通过
+                # queue 把这个节点的 trace 喂给事件循环, 推到前端, 而不是等整图跑完
+                # 才吐. 这样 SSE 是真正的"分步反馈", 而不是延迟一致性.
                 from langchain_core.messages import HumanMessage
+
+                graph = build_agent_graph()
                 state_in = {
                     "messages": [HumanMessage(content=req.question)],
-                    "plan": "", "retrieved": "", "draft": "", "final": "", "trace": [],
+                    # 关键: 把 req.kb_id 显式塞进 state, 让 retriever_node 走正确 kb.
+                    "kb_id": req.kb_id,
+                    "plan": "",
+                    "retrieved": "",
+                    "draft": "",
+                    "final": "",
+                    "trace": [],
+                    "retry_count": 0,
+                    "last_reviewer_reason": "",
                 }
-                result = graph.invoke(state_in)
-                for step in result.get("trace", []):
-                    yield "data: " + json.dumps({"type": "trace", "data": step}, ensure_ascii=False) + "\n\n"
-                final_text = result.get("final", "")
-                yield "data: " + json.dumps({"type": "token", "data": {"text": final_text}}, ensure_ascii=False) + "\n\n"
+
+                q: "queue.Queue[tuple[str, object]]" = queue.Queue()
+
+                def _runner():
+                    try:
+                        # graph.stream() 每跑完一个节点就 yield {node_name: state_after_step}.
+                        last_trace_len = 0
+                        last_final = ""
+                        for step in graph.stream(state_in):
+                            for _node_name, ns in step.items():
+                                if not isinstance(ns, dict):
+                                    continue
+                                curr_trace = ns.get("trace", []) or []
+                                new_entries = curr_trace[last_trace_len:]
+                                last_trace_len = len(curr_trace)
+                                last_final = ns.get("final", last_final) or last_final
+                                if new_entries:
+                                    q.put(("trace", new_entries))
+                        # 整图跑完, 把 final 一起 push 到 queue, 客户端从 token 事件里拿.
+                        q.put(("done", last_final))
+                    except Exception as e:  # pragma: no cover
+                        q.put(("error", e))
+
+                t = threading.Thread(target=_runner, daemon=True)
+                t.start()
+
+                # 在事件循环里 round-robin 拉取 trace 事件, 真正流式.
+                final_text = ""
+                while True:
+                    kind, payload = await asyncio.to_thread(q.get)
+                    if kind == "trace":
+                        for step in payload:
+                            yield "data: " + json.dumps(
+                                {"type": "trace", "data": step}, ensure_ascii=False
+                            ) + "\n\n"
+                    elif kind == "error":
+                        err = payload
+                        logger.exception("agent stream error: " + str(err))
+                        yield "data: " + json.dumps(
+                            {"type": "error", "data": {"msg": str(err)}}, ensure_ascii=False
+                        ) + "\n\n"
+                        return
+                    elif kind == "done":
+                        final_text = payload or ""
+                        break
+
+                # 用一个 token 事件收尾 (跟 RAG 分支 SSE 协议一致).
+                if final_text:
+                    yield "data: " + json.dumps(
+                        {"type": "token", "data": {"text": final_text}}, ensure_ascii=False
+                    ) + "\n\n"
                 yield "data: {\"type\":\"done\"}\n\n"
                 return
 
             candidates = await retriever.retrieve_async(req.question, top_k=req.top_k * 2)
             reranked = await asyncio.to_thread(
-                CrossEncoderReranker().rerank, req.question, candidates, req.top_k,
+                get_reranker().rerank, req.question, candidates, req.top_k,
             )
             for c in reranked:
                 payload = {
@@ -148,9 +211,18 @@ async def _chat_agent(req: ChatRequest) -> ChatResponse:
     graph = build_agent_graph()
     state_in = {
         "messages": [HumanMessage(content=req.question)],
-        "plan": "", "retrieved": "", "draft": "", "final": "", "trace": [],
+        # 关键: 把 req.kb_id 显式塞进 state, 让 retriever_node 走正确 kb.
+        "kb_id": req.kb_id,
+        "plan": "",
+        "retrieved": "",
+        "draft": "",
+        "final": "",
+        "trace": [],
+        "retry_count": 0,
+        "last_reviewer_reason": "",
     }
-    result = graph.invoke(state_in)
+    # graph.invoke 是同步阻塞, 卸到 threadpool 不阻塞 FastAPI 事件循环.
+    result = await asyncio.to_thread(graph.invoke, state_in)
     sid = req.session_id or ("sess_" + uuid.uuid4().hex[:8])
     return ChatResponse(
         answer=result.get("final", ""),

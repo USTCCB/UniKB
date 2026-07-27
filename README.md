@@ -8,19 +8,19 @@
 
 UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Generation）平台。它把本地文档知识通过多 Agent 协作、MCP 工具协议、混合检索与重排序，最终以流式、带检索片段的方式回答用户问题。
 
-支持 DeepSeek / Qwen / OpenAI 等多种 LLM 灵活切换。
+LLM 支持按 provider/model **按请求切换**: `app.agents.llm_router.get_llm(provider, model)` 接受 provider + model 参数, 内部按 `(provider, model)` 作 cache key (lru_cache)。`get_llm()` 不带参数仍走环境变量里的默认组合, 向后兼容老调用点。
 
 ## 核心特性
 
 - 混合检索：BM25 + 向量语义 + RRF 融合
-- 精排重排：Cross-Encoder（BGE-reranker）抑制幻觉
-- 多 Agent 协作：基于 LangGraph 的 Planner / Retriever / Coder / Reviewer 流程
-- MCP 协议：原生支持 Model Context Protocol，可扩展工具集
+- 精排重排：Cross-Encoder（BGE-reranker）抑制幻觉, 单例缓存避免每次请求重新加载模型
+- 多 Agent 协作：基于 LangGraph 的 Planner / Retriever / Coder / Reviewer 流程, Reviewer 不通过时通过 `add_conditional_edges` **真正回环** 到 Retriever 重新检索 (`MAX_REVIEWER_RETRIES=2` 防死循环)
+- MCP 协议：UniKB 自身工具 (`hybrid_search` / `calculator` / `current_date`) **通过 stdio / SSE 暴露成 MCP Server** 给 Claude Desktop、Cursor、Trae 等客户端调用; Agent 内部暂未作为 MCP Client 去消费外部 MCP 工具 (单向)
 - 文档解析：PDF、DOCX、Markdown、TXT 与图片 OCR（图片 OCR 需要本机安装 Tesseract）
-- 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源
+- 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源；Agent 模式把 graph.stream 放进 threadpool, 按节点实时推 trace 事件, 不阻塞 FastAPI 事件循环
 - 工程化：JWT 鉴权（HttpOnly cookie + Bearer 双轨）+ Docker Compose 一键部署 + GitHub Actions CI + GHCR 镜像发布 CD
-- 安全加固：KB ACL 防越权、CORS 白名单、登录/Chat 限流、CSP/HSTS 安全响应头
-- 性能优化：同步 CPU/IO _OFFLOAD 到线程池、BM25 惰性重建、HybridRetriever 进程内缓存
+- 安全加固：KB ACL 防越权 (Agent 模式现在真的会按 `state['kb_id']` 走对应私有 kb)、CORS 白名单、登录/Chat 限流、CSP/HSTS 安全响应头
+- 性能优化：同步 CPU/IO _OFFLOAD 到线程池、BM25 惰性重建、HybridRetriever 进程内缓存、Reranker 单例
 - 文档管理：上传大小限制、DELETE `/documents/{doc_id}` 删除并同步清理 vector/BM25
 - 可观测性：内置 LangFuse 对接（可选，关闭时无副作用）
 - 评估体系：集成 RAGAS 自动评估（4 大指标）
@@ -29,7 +29,7 @@ UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Gener
 
 | 层级 | 选型 |
 |---|---|
-| LLM | DeepSeek / Qwen / OpenAI（可配置切换） |
+| LLM | DeepSeek / Qwen / OpenAI（按 provider + model 在请求内动态切换，缓存 key = `(provider, model)`） |
 | Agent 框架 | LangChain + LangGraph |
 | MCP 协议 | mcp 1.0+（stdio + SSE 传输） |
 | 后端 | FastAPI + Uvicorn（异步） |
@@ -90,7 +90,7 @@ CI 已拆分为两个并行 job:
 
 当前参考数据（会随测试增加变化）:
 
-- 单元测试：~238 passed
+- 单元测试：~172 passed (核心: chunker / reranker / agent / 路由 / chunker overlap / kb_id / LLM router)
 - 集成测试：8 passed
 
 本地跑法:
@@ -182,10 +182,10 @@ RAG pipeline（retriever / reranker / llm）会自动写入 trace；不启用时
 
 ## Roadmap
 
-- [x] 多 LLM 路由
+- [x] 多 LLM 路由（按 provider + model 按请求切换）
 - [x] BM25 + 向量混合检索 + RRF
-- [x] LangGraph 多 Agent
-- [x] MCP 协议适配
+- [x] LangGraph 多 Agent + Reviewer 回环（add_conditional_edges）
+- [x] MCP Server 单向暴露内部工具（stdio/SSE）
 - [x] SSE 流式问答
 - [x] 多轮对话 / 历史会话 / 引用溯源
 - [x] RAGAS 自动评估脚本 + JSON 报告
@@ -193,11 +193,14 @@ RAG pipeline（retriever / reranker / llm）会自动写入 trace；不启用时
 - [x] Docker Compose 一键起 + healthcheck
 - [x] 知识库 ACL + 用户/知识库隔离（P0）
 - [x] 安全加固：CORS 白名单、登录/Chat 限流、JWT HttpOnly cookie、CSP/HSTS（P0/P2）
-- [x] 性能优化：线程池 offload、BM25 惰性重建、Retriever 进程内缓存（P1）
+- [x] 性能优化：线程池 offload、BM25 惰性重建、Retriever 进程内缓存、CrossEncoderReranker 单例缓存（P1）
 - [x] 用户表 SQLAlchemy 化（SQLite，可切换 PostgreSQL）（P2-12）
 - [x] 文档删除接口 + vector/BM25 同步清理（P2-13）
+- [x] Chunker 主打包路径的 overlap 真的生效（P2）
+- [x] Planner 结构化决策 + Agent 工具路由（calculator / current_date / hybrid_search）（P2）
 - [ ] 对话历史/文件元数据统一 SQLAlchemy 迁移
 - [ ] MinIO 文件存储
+- [ ] MCP Client（Agent 消费外部 MCP 工具，双向集成）
 
 ## License
 
