@@ -1,4 +1,4 @@
-# UniKB - 通用企业级 RAG 知识库平台
+# UniKB - 面向企业知识管理场景的 RAG 知识库平台
 
 > Multi-Agent + MCP + Hybrid Search + Full-Stack。
 
@@ -8,6 +8,8 @@
 
 UniKB 是一个面向企业知识管理场景的 RAG（Retrieval-Augmented Generation）平台。它把本地文档知识通过多 Agent 协作、MCP 工具协议、混合检索与重排序，最终以流式、带检索片段的方式回答用户问题。
 
+> **当前阶段说明**：知识库 ACL 采用 owner-based 隔离模型（每个私有 kb 属于一个用户）；多用户团队协作、角色权限、组织级知识库是 Roadmap 中的后续目标。
+
 LLM 支持按 provider/model **按请求切换**: `app.agents.llm_router.get_llm(provider, model)` 接受 provider + model 参数, 内部按 `(provider, model)` 作 cache key (lru_cache)。`get_llm()` 不带参数仍走环境变量里的默认组合, 向后兼容老调用点。
 
 ## 核心特性
@@ -15,7 +17,7 @@ LLM 支持按 provider/model **按请求切换**: `app.agents.llm_router.get_llm
 - 混合检索：BM25 + 向量语义 + RRF 融合
 - 精排重排：Cross-Encoder（BGE-reranker）抑制幻觉, 单例缓存避免每次请求重新加载模型
 - 多 Agent 协作：基于 LangGraph 的 Planner / Retriever / Coder / Reviewer 流程, Reviewer 不通过时通过 `add_conditional_edges` **真正回环** 到 Retriever 重新检索 (`MAX_REVIEWER_RETRIES=2` 防死循环)
-- MCP 协议：UniKB 自身工具 (`hybrid_search` / `calculator` / `current_date`) **通过 stdio / SSE 暴露成 MCP Server** 给 Claude Desktop、Cursor、Trae 等客户端调用; Agent 内部暂未作为 MCP Client 去消费外部 MCP 工具 (单向)
+- MCP 协议：UniKB 自身工具 (`hybrid_search` / `calculator` / `current_date`) **通过 stdio / SSE 暴露成 MCP Server** 给 Claude Desktop、Cursor、Trae 等客户端调用; Agent 内部暂未作为 MCP Client 去消费外部 MCP 工具 (单向)。**注意：每个 MCP Server 进程启动时绑定一个 kb_id，无法在同一进程内动态切换知识库**
 - 文档解析：PDF、DOCX、Markdown、TXT 与图片 OCR（图片 OCR 需要本机安装 Tesseract）
 - 流式问答：SSE 协议 + 多轮对话管理 + 引用溯源；Agent 模式把 graph.stream 放进 threadpool, 按节点实时推 trace 事件, 不阻塞 FastAPI 事件循环
 - 工程化：JWT 鉴权（HttpOnly cookie + Bearer 双轨）+ Docker Compose 一键部署 + GitHub Actions CI + GHCR 镜像发布 CD
@@ -31,14 +33,14 @@ LLM 支持按 provider/model **按请求切换**: `app.agents.llm_router.get_llm
 |---|---|
 | LLM | DeepSeek / Qwen / OpenAI（按 provider + model 在请求内动态切换，缓存 key = `(provider, model)`） |
 | Agent 框架 | LangChain + LangGraph |
-| MCP 协议 | mcp 1.0+（stdio + SSE 传输） |
+| MCP 协议 | mcp 1.0+（stdio + SSE 传输；Server 启动时固定 kb_id） |
 | 后端 | FastAPI + Uvicorn（异步） |
 | 前端 | Next.js 14 + TypeScript（App Router） |
 | 向量库 | Chroma（轻量、可零配置） |
 | 检索 | BM25（rank_bm25）+ 向量 + RRF |
 | 重排 | Cross-Encoder（BAAI/bge-reranker-base） |
 | 数据库 | SQLite（用户/历史会话/文件元数据，SQLAlchemy 抽象，可切 PostgreSQL）+ Chroma 向量库 |
-| 缓存 | Redis（限流 / Embedding / 热点问答，可选） |
+| 缓存 | Redis（Embedding / 热点问答缓存，可选；限流当前为进程内实现，多实例部署需迁移到 Redis） |
 | 文件 | 本地 / MinIO 可切换 |
 | 可观测 | LangFuse（可选） |
 | 评估 | RAGAS |
