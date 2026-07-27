@@ -8,7 +8,6 @@
 """
 from __future__ import annotations
 
-import importlib
 import sys
 import types
 
@@ -86,7 +85,8 @@ def test_business_code_uses_singleton(monkeypatch):
         "app/agents/tools.py",
     ]
     for path in targets:
-        src = open(path, "r", encoding="utf-8").read()
+        with open(path, "r", encoding="utf-8") as fh:
+            src = fh.read()
         # 允许 import / 类型注解出现 `CrossEncoderReranker`, 但不允许直接调用.
         # 简单做法: 排除 `CrossEncoderReranker` 后面跟 `(` 但不是方法调用的.
         # 这里只允许 `get_reranker()` 和 (debug 用) `reset_reranker_cache`.
@@ -94,7 +94,7 @@ def test_business_code_uses_singleton(monkeypatch):
         for line in src.splitlines():
             # 跳过注释与 import 行.
             stripped = line.strip()
-            if stripped.startswith("#") or stripped.startswith("from "):
+            if stripped.startswith(("#", "from ")):
                 continue
             # 形式 `CrossEncoderReranker(...)` -- 直接实例化.
             if "CrossEncoderReranker(" in line:

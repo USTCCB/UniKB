@@ -13,9 +13,7 @@ P0-2 bug 的根因是: chat.py 调 `build_agent_graph()` 时, `AgentState` 里
 from __future__ import annotations
 
 import json
-from typing import List
 
-import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
@@ -94,9 +92,7 @@ def test_retriever_node_propagates_kb_id_via_graph():
 def test_retriever_node_distinct_kb_id_per_request():
     """同一个 graph 跑两次, 第二次用不同的 kb_id, retriever 拿到的 kb_id 必须跟
     第二次请求的 state 走, 而不是缓存了第一次的."""
-    captured_runs: List[str] = []
-    call_count = {"n": 0}
-
+    captured_runs: list[str] = []
     def _fake_build_tools(kb_id: str = "default"):
         captured_runs.append(kb_id)
 

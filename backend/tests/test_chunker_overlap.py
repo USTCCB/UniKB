@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import itertools
+
 from app.rag.chunker import TextChunker
 
 
@@ -30,7 +32,7 @@ def test_main_packing_applies_overlap_between_chunks():
     assert len(out) >= 2, "需要至少两个 chunk 才能验证 overlap"
     # 至少有一对相邻 chunk 是有 overlap 的.
     found_overlap = False
-    for a, b in zip(out, out[1:]):
+    for a, b in itertools.pairwise(out):
         # b 的开头应该与 a 的末尾有重叠 (>= 5 字符, 因为 chunk_size 小, overlap 上限受 chunk_size/4 影响).
         # 这里 chunk_size=20, overlap 上限是 5. 我们要求 overlap 上限尽量大,
         # 所以 overlap 至少 1 字符即可.
@@ -52,7 +54,7 @@ def test_main_packing_long_text_overlap_present():
     assert len(out) >= 2
     # 主打包路径下, 至少一对相邻 chunk 之间有 overlap 字符.
     found_overlap = False
-    for a, b in zip(out, out[1:]):
+    for a, b in itertools.pairwise(out):
         # 至少 1 字符重叠 (分隔符切分会破坏严格 overlap 边界, 但重叠仍存在).
         for k in range(20, 0, -1):
             if _overlap(a.text, b.text, k):
@@ -83,7 +85,7 @@ def test_hard_split_path_keeps_overlap():
     for c in out:
         assert len(c.text) <= 50
     # 至少相邻两片之间应有重叠 (硬切路径).
-    for a, b in zip(out, out[1:]):
+    for a, b in itertools.pairwise(out):
         # 硬切路径用 step=chunk_size-overlap, 所以 a 末尾 chunk_overlap 字符 == b 开头.
         assert a.text[-ch.chunk_overlap:] == b.text[:ch.chunk_overlap], (
             "硬切路径 chunk 之间应严格 overlap"

@@ -13,25 +13,18 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app.agents import graph as graph_mod
+# LangGraph 的 END 常量现在等于 "__end__", 跟字面量 "END" 不一样 -- 直接 import 用.
 from app.agents.graph import (
-    AgentState,
     MAX_REVIEWER_RETRIES,
+    AgentState,
     _parse_planner_decision,
-    _parse_reviewer_decision,
     build_agent_graph,
-    coder_node,
     planner_node,
     retriever_node,
-    reviewer_node,
     route_review,
 )
-# LangGraph 的 END 常量现在等于 "__end__", 跟字面量 "END" 不一样 -- 直接 import 用.
-from langgraph.graph import END
-
 
 # ---------- _parse_planner_decision 解析 ----------
 
@@ -183,7 +176,7 @@ def test_retriever_node_invokes_hybrid_by_default(monkeypatch):
         "app.agents.graph.build_tools",
         lambda kb_id="default": [hybrid_search],
     )
-    out = retriever_node(state)
+    retriever_node(state)
     assert hybrid_called["n"] == 1
 
 
