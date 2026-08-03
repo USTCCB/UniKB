@@ -26,8 +26,11 @@ def recall_at_k(relevant: Sequence[str], retrieved: Sequence[str], k: int) -> fl
     if k <= 0:
         return 0.0
     rel_set = set(relevant)
+    # 必须按**集合交集**算命中, 不能逐条累加:
+    # 父文档召回 (连坐) 会让同一个 chunk id 在候选里出现多次, 逐条累加会把
+    # Recall 算到 > 1.0, 直接把评估指标刷虚高.
     top = list(retrieved)[:k]
-    hits = sum(1 for r in top if r in rel_set)
+    hits = len(rel_set & set(top))
     return hits / len(rel_set)
 
 

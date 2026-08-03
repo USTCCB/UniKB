@@ -33,7 +33,9 @@ _RE_ZWSP_VARIANT = re.compile("[\u200b\u200e\u200f]")
 # ---------------------------------------------------------------------------
 # 2. HTML / XML 残留
 # ---------------------------------------------------------------------------
-_RE_HTML_TAG = re.compile(r"<[^>]+>")
+# 注意 negative lookahead: 排除清洗器自己产出的 <URL> / <EMAIL> 占位符.
+# 否则对同一文本 clean 两次, 第二遍会把占位符当成 HTML 标签抹掉, 破坏幂等性.
+_RE_HTML_TAG = re.compile(r"<(?!URL>|EMAIL>)[^>]+>")
 _RE_HTML_ENTITY = re.compile(r"&(?:[a-zA-Z]+|#\d+);")
 _RE_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _RE_CDATA = re.compile(r"<!\[CDATA\[.*?\]\]>", re.DOTALL)
@@ -92,8 +94,8 @@ _RE_SEPARATOR_LINE = re.compile(r"^\s*[-=*_]{5,}\s*$", re.MULTILINE)
 _RE_EMPTY_PAREN = re.compile(r"\(\s*\)|\（\s*\）")
 _RE_BROKEN_FRAGMENT = re.compile(r"[•·▪◦]+\s*$")  # 行尾孤立项目符号
 
-# 重复的空白字符 (catch-all, 放在最后)
-_RE_WHITESPACE_COLLAPSE = re.compile(r"[ \t]{2,}")
+# 中文标点前的空格 (HTML 标签被替换成空格后很容易残留 "文字 ，" 这种)
+_RE_SPACE_BEFORE_CJK_PUNCT = re.compile(r"[ \t]+(?=[，。、；：！？）】》」』])")
 _RE_TAB = re.compile(r"\t+")
 
 
@@ -148,7 +150,7 @@ class DocumentCleaner:
         (_RE_ISOLATED_PUNCT, ""),
         (_RE_MULTI_DOT, "..."),
         (_RE_MULTI_SPACE, " "),
-        (_RE_WHITESPACE_COLLAPSE, " "),
+        (_RE_SPACE_BEFORE_CJK_PUNCT, ""),
         (_RE_MULTI_NEWLINE, "\n\n"),
     ]
 

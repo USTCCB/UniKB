@@ -5,8 +5,6 @@ import asyncio
 import threading
 from typing import Dict, List
 
-from loguru import logger
-
 from app.core.config import settings
 from app.rag.bm25_store import BM25Store
 from app.rag.embedding import get_embedding_service
@@ -66,6 +64,16 @@ def rrf_fuse(rank_lists: List[List[dict]], k: int = 60) -> List[dict]:
 
 class HybridRetriever:
     def __init__(self, kb_id: str = "default"):
+        # 纵深防御: kb_id 会拼进文件路径与 collection 名, API 层已经用
+        # kb_registry.validate_kb_id 拦过一次, 这里再兜一次, 保证 Agent / 评估脚本
+        # 等非 HTTP 调用方也不能构造出 "../../x" 这种路径.
+        from app.core.kb_registry import is_valid_kb_id
+
+        if not is_valid_kb_id(kb_id):
+            raise ValueError(
+                f"非法的 kb_id: {kb_id!r} (只允许字母、数字、下划线和连字符, 长度 1-64)"
+            )
+        kb_id = kb_id.strip()
         self.kb_id = kb_id
         self.vector_store = ChromaStore(collection_name=f"kb_{kb_id}")
         self.bm25_store = BM25Store(persist_path=f"./data/bm25_{kb_id}.pkl")

@@ -9,7 +9,7 @@ from typing import Any
 
 from loguru import logger
 
-from app.agents.llm_router import get_llm
+from app.agents.llm_router import get_llm, get_llm_text_callable
 from app.core.config import settings
 from app.core.observability import get_tracer
 from app.rag.query_rewrite import QueryRewriter
@@ -24,6 +24,72 @@ _PROMPT_TEMPLATE = (
     "【用户问题】{question}\n\n"
     "【回答】"
 )
+
+
+async def retrieve_and_rerank(
+    question: str,
+    kb_id: str = "default",
+    retriever: HybridRetriever | None = None,
+    trace: Any = None,
+) -> list[dict]:
+    """共享的「检索 + 重排」链路, 返回重排后的候选 (含 metadata).
+
+    抽出来是为了让 **API 主聊天链路和 run_rag 走完全同一套逻辑**。
+    之前 `/api/v1/chat` 自己直连 retriever+reranker, 导致查询改写、
+    RerankOptimizer 的候选池截断、父文档召回这些配置在生产链路上是死代码,
+    只有评估脚本才吃得到, 线上线下行为不一致。
+
+    Args:
+        trace: 可选的 Langfuse trace; 传 None 时所有 span 自动退化为 no-op。
+    """
+    tracer = get_tracer()
+    retriever = retriever or HybridRetriever(kb_id=kb_id)
+
+    with tracer.span(trace, "query.rewrite"):
+        # 查询改写: 用 LLM 把口语化/歧义问题扩写成多条检索 query;
+        # 无 LLM (缺 key/测试) 时走确定性子句切分回退, 不降级.
+        rewriter = QueryRewriter(enabled=settings.query_rewrite_enabled)
+        try:
+            # 注意: 这里必须传"文本适配器"而不是 BaseChatModel —— rewriter 内部按
+            # `llm(prompt).strip()` 调用, 直接传 chat model 会拿到 AIMessage 并抛
+            # AttributeError, 被 except 吞掉后永远退化成确定性切分回退.
+            llm_for_rewrite = get_llm_text_callable()
+        except Exception:
+            llm_for_rewrite = None
+        queries = rewriter.rewrite(question, llm=llm_for_rewrite)
+        # 空问题 / 纯标点会让 rewrite 返回 [], 兜底成原问题, 避免下面 per_query[0]
+        # 直接 IndexError.
+        if not queries:
+            queries = [question] if (question or "").strip() else []
+
+    with tracer.span(trace, "retriever.hybrid"):
+        # 多 query 检索: 每个改写 query 各自走 BM25+向量+RRF+父文档召回,
+        # 再把多路候选 RRF 融合, 扩大召回面 (query rewriting 的收益落点).
+        per_query: list[list[dict]] = []
+        # 把候选池预算按 query 数摊分, 避免多 query 把候选数放大过头.
+        per_q_topk = max(settings.top_k_vector, settings.rerank_candidate_pool // max(1, len(queries)))
+        for q in queries:
+            cands = await retriever.retrieve_async(q, top_k=per_q_topk)
+            per_query.append(cands)
+        if len(per_query) > 1:
+            candidates = rrf_fuse(per_query, k=60)
+        elif per_query:
+            candidates = per_query[0]
+        else:
+            candidates = []
+
+    with tracer.span(trace, "reranker.cross_encoder"):
+        # 重排优化: 先把候选池截断到 Top-60 再让 Cross-Encoder 精排到 Top-25,
+        # 压住 Cross-Encoder 算力 (11.4s -> 2.3s) 同时保住 Recall@5 (93% -> 98.7%).
+        optimizer = RerankOptimizer()
+        reranked = await optimizer.optimize_async(
+            question,
+            candidates,
+            pool=settings.rerank_candidate_pool,
+            top_n=settings.rerank_top_n,
+            reranker=get_reranker(),
+        )
+    return reranked
 
 
 def _format_contexts(docs: list[dict], top_k: int) -> tuple[list[str], list[str], list[float]]:
@@ -98,41 +164,9 @@ async def run_rag(
                 "metadata": {"mode": "agent", "trace": result.get("trace", [])},
             }
 
-        with tracer.span(trace, "query.rewrite"):
-            # 查询改写: 用 LLM 把口语化/歧义问题扩写成多条检索 query;
-            # 无 LLM (缺 key/测试) 时走确定性子句切分回退, 不降级.
-            rewriter = QueryRewriter(enabled=settings.query_rewrite_enabled)
-            try:
-                llm_for_rewrite = get_llm()
-            except Exception:
-                llm_for_rewrite = None
-            queries = rewriter.rewrite(question, llm=llm_for_rewrite)
-
-        with tracer.span(trace, "retriever.hybrid"):
-            # 多 query 检索: 每个改写 query 各自走 BM25+向量+RRF+父文档召回,
-            # 再把多路候选 RRF 融合, 扩大召回面 (query rewriting 的收益落点).
-            per_query: list[list[dict]] = []
-            # 把候选池预算按 query 数摊分, 避免多 query 把候选数放大过头.
-            per_q_topk = max(settings.top_k_vector, settings.rerank_candidate_pool // max(1, len(queries)))
-            for q in queries:
-                cands = await retriever.retrieve_async(q, top_k=per_q_topk)
-                per_query.append(cands)
-            if len(per_query) > 1:
-                candidates = rrf_fuse(per_query, k=60)
-            else:
-                candidates = per_query[0]
-
-        with tracer.span(trace, "reranker.cross_encoder"):
-            # 重排优化: 先把候选池截断到 Top-60 再让 Cross-Encoder 精排到 Top-25,
-            # 压住 Cross-Encoder 算力 (11.4s -> 2.3s) 同时保住 Recall@5 (93% -> 98.7%).
-            optimizer = RerankOptimizer()
-            reranked = await optimizer.optimize_async(
-                question,
-                candidates,
-                pool=settings.rerank_candidate_pool,
-                top_n=settings.rerank_top_n,
-                reranker=get_reranker(),
-            )
+        reranked = await retrieve_and_rerank(
+            question, kb_id=kb_id, retriever=retriever, trace=trace
+        )
         contexts, ids, scores = _format_contexts(reranked, top_k)
 
         ctx_text = "\n\n".join(f"[{i + 1}] {c[:600]}" for i, c in enumerate(contexts))

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from functools import lru_cache
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from loguru import logger
 

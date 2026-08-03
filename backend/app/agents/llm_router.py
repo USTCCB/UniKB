@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 from functools import lru_cache
-from typing import Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Tuple
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -73,3 +73,24 @@ def get_llm(provider: Optional[str] = None, model: Optional[str] = None) -> Base
 def reset_llm_cache() -> None:
     """仅供测试: 清空 (provider, model) -> client 缓存."""
     _build_llm.cache_clear()
+
+
+def get_llm_text_callable(
+    provider: Optional[str] = None, model: Optional[str] = None
+) -> Callable[[str], str]:
+    """返回一个 (prompt: str) -> str 的纯文本适配器.
+
+    场景: metadata/HyDE/查询改写等只需要模型吐出的"文本", 但 `get_llm()` 返回的是
+    `BaseChatModel`, 直接 `llm(prompt).strip()` 拿到的是 `AIMessage`, 会抛
+    `AttributeError` 被 except 吞掉, 导致 LLM 分支永远走不到 (这是之前查询改写/HyDE
+    不生效的根因). 这里统一取出 `.content`.
+    """
+    llm = get_llm(provider, model)
+
+    def _call(prompt: str) -> str:
+        out = llm.invoke(prompt)
+        if isinstance(out, str):
+            return out
+        return getattr(out, "content", "") or ""
+
+    return _call

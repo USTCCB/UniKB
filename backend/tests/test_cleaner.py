@@ -63,3 +63,21 @@ def test_clean_is_idempotent():
     once = c.clean(raw)
     twice = c.clean(once)
     assert once == twice
+
+
+def test_idempotent_keeps_url_email_placeholders():
+    """回归: <URL>/<EMAIL> 占位符不能在第二遍被当成 HTML 标签抹掉."""
+    raw = "参考 https://example.com/docs 或邮件 a.b@example.com 联系"
+    c = DocumentCleaner()
+    once = c.clean(raw)
+    assert "<URL>" in once and "<EMAIL>" in once
+    twice = c.clean(once)
+    assert once == twice
+    assert "<URL>" in twice and "<EMAIL>" in twice
+
+
+def test_strips_space_before_cjk_punctuation():
+    """HTML 标签替换成空格后常残留 '文字 ，' 这种排版噪声."""
+    out = DocumentCleaner().clean("这是<b>正文</b>，继续")
+    assert " ，" not in out
+    assert "正文，继续" in out

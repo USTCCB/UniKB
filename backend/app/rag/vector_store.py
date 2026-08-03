@@ -1,7 +1,6 @@
 """Chroma vector store wrapper."""
 from __future__ import annotations
 
-import os
 import threading
 from pathlib import Path
 from typing import List, Optional
@@ -9,7 +8,36 @@ from typing import List, Optional
 from loguru import logger
 
 from app.core.config import settings
-from app.rag.embedding import get_embedding_service
+
+
+# Chroma 只接受 str/int/float/bool 作为 metadata value, 传 list/dict/None 会直接抛
+# ValueError 并让整批 upsert 失败. 上游 (MetadataEnhancer 的 keywords / HyDE 字段)
+# 天然会产出 list, 所以在写入层做一次统一归一化, 避免真实上传时崩在最后一步.
+_ALLOWED_META_TYPES = (str, int, float, bool)
+
+
+def sanitize_metadata(meta: Optional[dict]) -> dict:
+    """把任意 metadata 归一化成 Chroma 可接受的标量字典。
+
+    - list/tuple/set -> 逗号拼接的字符串 (保留可读性, 便于 where 做 LIKE 式过滤)
+    - dict/其它对象  -> str()
+    - None           -> 丢弃 (Chroma 不接受 None)
+    - bool 必须在 int 之前判断 (bool 是 int 的子类, 但两者 Chroma 都支持, 无所谓顺序)
+    """
+    if not meta:
+        return {}
+    out: dict = {}
+    for k, v in meta.items():
+        if v is None:
+            continue
+        key = str(k)
+        if isinstance(v, _ALLOWED_META_TYPES):
+            out[key] = v
+        elif isinstance(v, (list, tuple, set)):
+            out[key] = ", ".join(str(x) for x in v if x is not None)
+        else:
+            out[key] = str(v)
+    return out
 
 
 class ChromaStore:
@@ -36,8 +64,9 @@ class ChromaStore:
 
     def add(self, ids: List[str], documents: List[str], embeddings: List[List[float]], metadatas: List[dict]):
         col = self._ensure()
+        safe_metas = [sanitize_metadata(m) for m in (metadatas or [])]
         with self._write_lock:
-            col.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
+            col.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=safe_metas)
         logger.info(f"Chroma upsert: {len(ids)} vectors into {self.collection_name}")
 
     def query(self, query_embedding: List[float], top_k: int = 20, where: Optional[dict] = None):

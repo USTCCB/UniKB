@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     adaptive_short_doc_chars: int = Field(default=500, ge=100)
     # 3) 元数据增强 / HyDE: 入库存假设性问题 (hypothetical question) 提升召回.
     hyde_enabled: bool = True
+    # 入库侧 HyDE 是"每 chunk 一次 LLM 调用", 大文档会把上传拖成分钟级并烧 token.
+    # 因此只对前 N 个 chunk 走 LLM, 其余回退抽取式首句 (metadata 仍完整, 只是弱一些);
+    # 设为 0 表示入库侧完全不调 LLM (纯离线入库).
+    hyde_index_max_chunks: int = Field(default=20, ge=0, le=500)
+    # 这 N 个 chunk 的 LLM 调用并发度, 避免串行等待也避免打爆 provider 限流.
+    hyde_index_concurrency: int = Field(default=4, ge=1, le=32)
     # 4) 父文档召回 (连坐召回): 召回某 chunk 时一并召回同 doc 的兄弟 chunk.
     parent_recall_enabled: bool = True
     parent_recall_extra: int = Field(default=6, ge=0, le=32)

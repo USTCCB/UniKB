@@ -75,6 +75,47 @@ def _save_upload_bounded(file: UploadFile, dest: Path, limit: int) -> int:
     return total
 
 
+async def _enrich_chunks(chunks, enhancer: MetadataEnhancer, settings) -> None:
+    """给 chunk 批量补元数据; 前 N 个 chunk 走 LLM HyDE, 其余走抽取式回退.
+
+    为什么要限流:
+      入库侧 HyDE 是"每 chunk 一次 LLM 调用". 一个 200 chunk 的文档如果全量走 LLM,
+      串行下来是分钟级延迟 + 200 次计费. 所以只给**文档开头的前 N 个 chunk**
+      (信息密度最高、最可能被检索命中) 生成真实假设性问题, 其余回退首句摘要.
+
+    容错:
+      拿不到 LLM (缺 key / 离线 / 测试) 时整段降级为抽取式, 不影响入库成功.
+    """
+    llm = None
+    max_llm = getattr(settings, "hyde_index_max_chunks", 0) or 0
+    if settings.hyde_enabled and max_llm > 0:
+        try:
+            from app.agents.llm_router import get_llm_text_callable
+
+            llm = get_llm_text_callable()
+        except Exception as e:  # 缺 key / 未装 SDK, 静默降级
+            logger.info(f"HyDE indexing falls back to extractive (no LLM): {e}")
+            llm = None
+
+    if llm is None:
+        for c in chunks:
+            c.metadata |= enhancer.enrich_with_hyde(c.text, llm=None)
+        return
+
+    sem = asyncio.Semaphore(max(1, getattr(settings, "hyde_index_concurrency", 4)))
+
+    async def _one(c, use_llm: bool):
+        if not use_llm:
+            c.metadata |= enhancer.enrich_with_hyde(c.text, llm=None)
+            return
+        async with sem:
+            # LLM 调用是阻塞 IO, 卸到 threadpool, 避免堵住事件循环.
+            meta = await asyncio.to_thread(enhancer.enrich_with_hyde, c.text, llm)
+        c.metadata |= meta
+
+    await asyncio.gather(*(_one(c, i < max_llm) for i, c in enumerate(chunks)))
+
+
 @router.post("/upload", response_model=DocumentUploadResponse, summary="上传文档并自动入库")
 async def upload_document(
     file: UploadFile = File(...),
@@ -137,8 +178,7 @@ async def upload_document(
         # 2.3) 元数据增强 / HyDE: 给每个 chunk 追加关键词/摘要/假设性问题
         #      (无 LLM 时回退到抽取式摘要, 保证入库链路零外部依赖).
         enhancer = MetadataEnhancer(hyde_enabled=settings.hyde_enabled)
-        for c in chunks:
-            c.metadata |= enhancer.enrich_with_hyde(c.text, llm=None)
+        await _enrich_chunks(chunks, enhancer, settings)
         retriever = get_retriever(kb_id)
         ids = [c.metadata["chunk_id"] for c in chunks]
         docs = [c.text for c in chunks]

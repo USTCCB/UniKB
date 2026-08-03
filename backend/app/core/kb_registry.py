@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -19,12 +20,38 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 
-from app.core.config import get_settings, settings
+from app.core.config import get_settings
 from app.core.logging import logger
 
 # 注册表文件路径 (同 Chroma / BM25 等持久化目录一致)
 _REGISTRY_PATH = Path("./data/kb_registry.json")
 _LOCK = threading.Lock()
+
+# kb_id 会被直接拼进文件名 (./data/bm25_{kb_id}.pkl) 和 Chroma collection 名
+# (kb_{kb_id}), 不校验就等于把路径穿越 (../../etc/x) 和非法 collection 名
+# 交给用户控制. 这里用严格白名单: 字母/数字/下划线/连字符, 1~64 位.
+# 同时也满足 Chroma collection 命名约束 (3-63 字符, 字母数字与 _-).
+_KB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def is_valid_kb_id(kb_id: str) -> bool:
+    """纯函数版校验, 供非 HTTP 层 (retriever/评估脚本) 复用同一套规则."""
+    return bool(_KB_ID_RE.match((kb_id or "").strip()))
+
+
+def validate_kb_id(kb_id: str) -> str:
+    """校验并返回规范化的 kb_id, 非法直接 400.
+
+    放在 registry 层是因为所有读写入口 (upload/list/delete/chat) 都会先过
+    ensure_kb_for_read / ensure_kb_for_write, 在这里拦一次就能覆盖全链路。
+    """
+    kb_id = (kb_id or "").strip()
+    if not _KB_ID_RE.match(kb_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="非法的 kb_id: 只允许字母、数字、下划线和连字符, 长度 1-64",
+        )
+    return kb_id
 
 
 class KnowledgeBase:
@@ -140,9 +167,11 @@ def ensure_kb_for_read(kb_id: str, user: str) -> KnowledgeBase:
     """读权限校验: 公共 kb 直接放行; 私有 kb 要求 owner==user.
 
     Raises:
+        400: kb_id 含非法字符
         404: kb 不存在 (私有 kb 用户无法感知其存在, 视为不存在)
         403: kb 存在但不属于当前用户
     """
+    kb_id = validate_kb_id(kb_id)
     # 1) 公共 kb 白名单: 直接放行, 不需要事先注册
     if is_public_kb(kb_id):
         kb = get_kb(kb_id)
@@ -172,8 +201,10 @@ def ensure_kb_for_write(kb_id: str, user: str) -> KnowledgeBase:
     """写权限校验: 若 kb 不存在则自动创建并归属当前用户; 若存在则必须 owner==user.
 
     Raises:
+        400: kb_id 含非法字符
         403: kb 存在但属于其他用户 (包括公共 kb: 不允许往默认公共 kb 写)
     """
+    kb_id = validate_kb_id(kb_id)
     public_set = _public_kb_ids()
     # 公共 kb 不允许普通用户写入 (保持只读); 如果业务需要可再放开.
     if kb_id in public_set:

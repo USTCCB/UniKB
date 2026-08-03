@@ -5,7 +5,6 @@ import json
 import queue
 import threading
 import uuid
-from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -16,8 +15,8 @@ from app.agents.llm_router import get_llm
 from app.api.deps import get_current_user
 from app.core.kb_registry import ensure_kb_for_read
 from app.core.rate_limit import check_chat_quota
+from app.rag.pipeline import retrieve_and_rerank
 from app.rag.retriever import get_retriever
-from app.rag.reranker import get_reranker
 from app.schemas.chat import ChatRequest, ChatResponse, SourceItem
 
 
@@ -69,12 +68,12 @@ async def chat(req: ChatRequest, request: Request, user: str = Depends(get_curre
     if req.mode == "agent":
         return await _chat_agent(req)
 
-    # CPU 密集: 把 retriever.retrieve() 和 reranker.rerank() 卸到 threadpool,
-    # 让 FastAPI 事件循环在其他请求处理时不会被这两个同步调用阻塞.
-    candidates = await retriever.retrieve_async(req.question, top_k=req.top_k * 2)
-    reranked = await asyncio.to_thread(
-        get_reranker().rerank, req.question, candidates, req.top_k,
-    )
+    # 走与 run_rag 完全相同的检索链路 (查询改写 -> 多路 RRF -> 候选池截断 ->
+    # Cross-Encoder 精排), 保证线上问答与离线评估行为一致.
+    # 内部所有 CPU 密集调用都已卸到 threadpool, 不阻塞事件循环.
+    reranked = (await retrieve_and_rerank(
+        req.question, kb_id=req.kb_id, retriever=retriever
+    ))[: req.top_k]
     prompt = _build_prompt(req.question, reranked)
     # LLM 调用也是阻塞型同步 SDK, 也卸到 threadpool.
     resp = await asyncio.to_thread(get_llm().invoke, prompt)
@@ -176,10 +175,10 @@ async def chat_stream(req: ChatRequest, request: Request, user: str = Depends(ge
                 yield "data: {\"type\":\"done\"}\n\n"
                 return
 
-            candidates = await retriever.retrieve_async(req.question, top_k=req.top_k * 2)
-            reranked = await asyncio.to_thread(
-                get_reranker().rerank, req.question, candidates, req.top_k,
-            )
+            # 同 /chat 非 agent 分支: 复用 pipeline 的统一检索链路.
+            reranked = (await retrieve_and_rerank(
+                req.question, kb_id=req.kb_id, retriever=retriever
+            ))[: req.top_k]
             for c in reranked:
                 payload = {
                     "type": "source",
