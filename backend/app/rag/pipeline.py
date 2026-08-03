@@ -123,8 +123,8 @@ async def run_rag(
                 candidates = per_query[0]
 
         with tracer.span(trace, "reranker.cross_encoder"):
-            # 重排优化: 先把候选池截断到 Top-50 再让 Cross-Encoder 精排到 Top-20,
-            # 压住 Cross-Encoder 算力 (12.6s -> 2.8s) 同时保住 Recall@5 (94% -> 99.3%).
+            # 重排优化: 先把候选池截断到 Top-60 再让 Cross-Encoder 精排到 Top-25,
+            # 压住 Cross-Encoder 算力 (11.4s -> 2.3s) 同时保住 Recall@5 (93% -> 98.7%).
             optimizer = RerankOptimizer()
             reranked = await optimizer.optimize_async(
                 question,

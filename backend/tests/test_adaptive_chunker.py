@@ -15,9 +15,9 @@ def test_short_doc_kept_whole():
 
 
 def test_long_doc_uses_adaptive_chunk_size():
-    # 长文档应使用 adaptive_chunk_size (默认 6000) 而非默认 chunk_size (500).
-    text = "。".join([f"第{i}段业务说明内容" for i in range(400)])  # 远长于 600
-    ch = TextChunker(adaptive=True, adaptive_chunk_size=6000, adaptive_short_doc_chars=600)
+    # 长文档应使用 adaptive_chunk_size (默认 5500) 而非默认 chunk_size (500).
+    text = "。".join([f"第{i}段业务说明内容" for i in range(400)])  # 远长于 500
+    ch = TextChunker(adaptive=True, adaptive_chunk_size=5500, adaptive_short_doc_chars=500)
     out = ch.split(text, doc_id="d_long")
     # 由于放大了 chunk_size, chunk 数量应明显少于用默认 500 切的版本.
     out_default = TextChunker(adaptive=False, chunk_size=500).split(text, doc_id="d_long")

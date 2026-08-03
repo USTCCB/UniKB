@@ -112,20 +112,20 @@ class Settings(BaseSettings):
     top_k_final: int = 5
 
     # ===== RAG 质量调优 (来自 RAG 知识库工程实践) =====
-    # 1) 文档清洗: 占 RAG 质量调优 ~65% 精力, 40+ 正则规则去除噪声.
+    # 1) 文档清洗: 占 RAG 质量调优 ~60% 精力, 42 条正则规则去除噪声.
     cleaner_enabled: bool = True
     # 2) 自适应切分: 短文档整篇保留为 1 个 chunk; 长文档按 adaptive_chunk_size 切.
     adaptive_chunking_enabled: bool = True
-    adaptive_chunk_size: int = Field(default=6000, ge=500, le=8000)
-    adaptive_short_doc_chars: int = Field(default=600, ge=100)
+    adaptive_chunk_size: int = Field(default=5500, ge=500, le=8000)
+    adaptive_short_doc_chars: int = Field(default=500, ge=100)
     # 3) 元数据增强 / HyDE: 入库存假设性问题 (hypothetical question) 提升召回.
     hyde_enabled: bool = True
     # 4) 父文档召回 (连坐召回): 召回某 chunk 时一并召回同 doc 的兄弟 chunk.
     parent_recall_enabled: bool = True
-    parent_recall_extra: int = Field(default=8, ge=0, le=32)
-    # 5) 重排优化: 候选池 Top-50 -> 重排后 Top-20 (控制 Cross-Encoder 算力).
-    rerank_candidate_pool: int = Field(default=50, ge=10, le=200)
-    rerank_top_n: int = Field(default=20, ge=5, le=100)
+    parent_recall_extra: int = Field(default=6, ge=0, le=32)
+    # 5) 重排优化: 候选池 Top-60 -> 重排后 Top-25 (控制 Cross-Encoder 算力).
+    rerank_candidate_pool: int = Field(default=60, ge=10, le=200)
+    rerank_top_n: int = Field(default=25, ge=5, le=100)
     # 6) 查询改写 (Query Rewriting): LLM 改写/拆解问题提升召回.
     query_rewrite_enabled: bool = True
 

@@ -146,7 +146,7 @@ class HybridRetriever:
         self,
         fused: List[dict],
         max_docs: int = 5,
-        max_extra_per_doc: int = 8,
+        max_extra_per_doc: int = 6,
     ) -> List[dict]:
         """父文档召回 (连坐召回).
 
@@ -188,7 +188,7 @@ class HybridRetriever:
         # 父文档召回 (连坐): 把同文档兄弟 chunk 补回, 提升上下文完整度.
         if getattr(settings, "parent_recall_enabled", False):
             fused_top = self.expand_parent_recall(
-                fused_top, max_docs=5, max_extra_per_doc=settings.parent_recall_extra
+                fused_top, max_docs=4, max_extra_per_doc=settings.parent_recall_extra
             )
         return fused_top
 

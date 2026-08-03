@@ -1,4 +1,4 @@
-"""测试: 重排候选池优化 RerankOptimizer (Top-50 候选 -> Top-20 精排)."""
+"""测试: 重排候选池优化 RerankOptimizer (Top-60 候选 -> Top-25 精排)."""
 from __future__ import annotations
 
 from app.rag.reranker import CrossEncoderReranker, RerankOptimizer
@@ -32,7 +32,7 @@ def _cands(n: int, start_score: float = 1.0):
 
 
 def test_optimizer_truncates_pool_before_rerank():
-    # 100 个候选, 但 Cross-Encoder 只应看到 pool=50 个.
+    # 100 个候选, 但 Cross-Encoder 只应看到 pool=60 个.
     cands = _cands(100)
     seen = []
 
@@ -41,19 +41,19 @@ def test_optimizer_truncates_pool_before_rerank():
             seen.extend(c["id"] for c in candidates)
             return super().rerank(query, candidates, top_k=top_k)
 
-    opt = RerankOptimizer(reranker=_Tracked([0.9] * 50))
-    opt.optimize("q", cands, pool=50, top_n=20)
-    # Cross-Encoder 输入被截断到 50
-    assert len(seen) == 50
-    assert "c50" not in seen
+    opt = RerankOptimizer(reranker=_Tracked([0.9] * 60))
+    opt.optimize("q", cands, pool=60, top_n=25)
+    # Cross-Encoder 输入被截断到 60
+    assert len(seen) == 60
+    assert "c60" not in seen
 
 
 def test_optimizer_returns_top_n():
     cands = _cands(80)
     scores = [0.1, 0.9, 0.5] + [0.0] * 77  # 期望 c1 排第一
     opt = RerankOptimizer(reranker=_ScoringReranker(scores))
-    out = opt.optimize("q", cands, pool=50, top_n=20)
-    assert len(out) == 20
+    out = opt.optimize("q", cands, pool=60, top_n=25)
+    assert len(out) == 25
     # 分数最高的是 c1 (score 0.9)
     assert out[0]["id"] == "c1"
 

@@ -4,7 +4,7 @@ RAG 质量调优里有句经验: **清洗占 60%~70% 的精力**, 检索/重排�
 解析出的原始文本充满噪声 (控制字符、零宽字符、页眉页脚、脚注、OCR 残片、
 Markdown/LaTeX 残留等), 直接切块会污染向量、拉低召回。
 
-这里用 **40+ 条正则规则** 做确定性清洗 (不依赖 LLM, 可复现、零成本):
+这里用 **42 条正则规则** 做确定性清洗 (不依赖 LLM, 可复现、零成本):
   1. 不可见字符: NUL/控制字符、零宽空格/连字、BOM、软连字符
   2. 排版噪声: 多余空白/换行、行尾空格、Tab 混用
   3. 标记语言残留: HTML 标签、Markdown 链接/图片/加粗、LaTeX 命令与数学环境
@@ -98,7 +98,7 @@ _RE_TAB = re.compile(r"\t+")
 
 
 class DocumentCleaner:
-    """确定性文档清洗器, 40+ 正则规则, 幂等、无 LLM 依赖。
+    """确定性文档清洗器, 42 条正则规则, 幂等、无 LLM 依赖。
 
     用法:
         text = DocumentCleaner().clean(raw_text)
@@ -166,7 +166,7 @@ class DocumentCleaner:
         out = re.sub(r"\n[ \t]+\n", "\n\n", out)
         return out.strip()
 
-    # 暴露规则计数, 方便 README / 测试断言 "40+ 条"。
+    # 暴露规则计数, 方便 README / 测试断言 "42 条"。
     @property
     def rule_count(self) -> int:
         return len(self._STEPS) + 2  # +2: 收尾的章节号替换与换行折叠

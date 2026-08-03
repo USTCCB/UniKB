@@ -116,7 +116,7 @@ async def upload_document(
         raw = await asyncio.to_thread(DocumentParser().parse, str(dest))
         if not raw.strip():
             raise HTTPException(status_code=400, detail="文档内容为空或解析失败")
-        # 2.1) 文档清洗: 40+ 正则去除噪声 (控制字符/页眉页脚/标记语言残留等).
+        # 2.1) 文档清洗: 42 条正则去除噪声 (控制字符/页眉页脚/标记语言残留等).
         text = await asyncio.to_thread(
             DocumentCleaner(enabled=settings.cleaner_enabled).clean, raw
         )

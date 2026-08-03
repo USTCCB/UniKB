@@ -33,7 +33,7 @@ _SENT_SPLIT = re.compile(r"(?<=[。！？!?；;\.\n])")
 class MetadataEnhancer:
     """为 chunk 文本生成结构化元数据 + 可选 HyDE 假设问题."""
 
-    def __init__(self, hyde_enabled: bool = True, max_keywords: int = 8):
+    def __init__(self, hyde_enabled: bool = True, max_keywords: int = 6):
         self.hyde_enabled = hyde_enabled
         self.max_keywords = max_keywords
 

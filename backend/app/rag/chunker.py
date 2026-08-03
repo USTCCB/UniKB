@@ -44,7 +44,7 @@ class TextChunker:
         self.separators = ["\n\n", "\n", "。", "！", "？", ". ", "! ", "? ", " ", ""]
         # 自适应切分参数 (来自 RAG 工程实践):
         #   短文档 (len <= adaptive_short_doc_chars) 整体作为 1 个 chunk,
-        #   避免被无谓切碎; 长文档改用更大的 adaptive_chunk_size (默认 6000)
+        #   避免被无谓切碎; 长文档改用更大的 adaptive_chunk_size (默认 5500)
         #   以减少 chunk 数量、保留更长上下文.
         self.adaptive = adaptive
         self.adaptive_chunk_size = adaptive_chunk_size or settings.adaptive_chunk_size

@@ -1,11 +1,11 @@
-"""测试: 文档清洗 DocumentCleaner (40+ 正则规则)."""
+"""测试: 文档清洗 DocumentCleaner (42 条正则规则)."""
 from __future__ import annotations
 
 from app.rag.cleaner import DocumentCleaner
 
 
 def test_rule_count_exceeds_40():
-    # 文章强调 40+ 条正则, 这里硬断言, 防止后人把规则删到太少.
+    # 文章强调 42 条正则, 这里硬断言, 防止后人把规则删到太少.
     assert DocumentCleaner().rule_count >= 40
 
 

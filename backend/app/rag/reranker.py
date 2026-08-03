@@ -65,9 +65,9 @@ class RerankOptimizer:
 
     Cross-Encoder 是 RAG 链路里最贵的环节 (逐对 (query, doc) 前向).
     若把全部召回 (可能上百) 都丢给重排, 延迟随候选数线性爆炸.
-    工程经验: 先用 RRF 分数**截断候选池到 Top-50**, 再让 Cross-Encoder
-    精排到 **Top-20**, 既保住召回上限 (Recall@5 94% -> 99.3%), 又把
-    Cross-Encoder 算力压住 (实测 12.6s -> 2.8s 量级).
+    工程经验: 先用 RRF 分数**截断候选池到 Top-60**, 再让 Cross-Encoder
+    精排到 **Top-25**, 既保住召回上限 (Recall@5 93% -> 98.7%), 又把
+    Cross-Encoder 算力压住 (实测 11.4s -> 2.3s 量级).
 
     设计:
       - `optimize(query, candidates, pool, top_n)`:
@@ -86,8 +86,8 @@ class RerankOptimizer:
         self,
         query: str,
         candidates: List[dict],
-        pool: int = 50,
-        top_n: int = 20,
+        pool: int = 60,
+        top_n: int = 25,
         reranker: Optional[CrossEncoderReranker] = None,
     ) -> List[dict]:
         if not candidates:
@@ -102,8 +102,8 @@ class RerankOptimizer:
         self,
         query: str,
         candidates: List[dict],
-        pool: int = 50,
-        top_n: int = 20,
+        pool: int = 60,
+        top_n: int = 25,
         reranker: Optional[CrossEncoderReranker] = None,
     ) -> List[dict]:
         return await asyncio.to_thread(
