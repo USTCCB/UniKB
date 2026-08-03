@@ -121,6 +121,60 @@ class HybridRetriever:
                 self.bm25_store.delete(ids_to_delete)
         return len(ids_to_delete)
 
+    def _sibling_chunks(self, doc_id: str, exclude_ids: set) -> List[dict]:
+        """从 BM25 内存 docs 取同 doc_id 的兄弟 chunk (排除已召回的).
+
+        BM25Store.docs 始终持有 {id, text, metadata}, 真实/ Fake 实现通用.
+        返回带 rrf_score 占位 None 的 dict, 由调用方决定排序权重.
+        """
+        out = []
+        for d in self.bm25_store.docs:
+            md = d.get("metadata", {}) or {}
+            if md.get("doc_id") != doc_id:
+                continue
+            if d["id"] in exclude_ids:
+                continue
+            out.append({
+                "id": d["id"],
+                "document": d.get("text", ""),
+                "metadata": md,
+                "rrf_score": None,  # 占位, 后续按父 chunk 分数继承
+            })
+        return out
+
+    def expand_parent_recall(
+        self,
+        fused: List[dict],
+        max_docs: int = 5,
+        max_extra_per_doc: int = 8,
+    ) -> List[dict]:
+        """父文档召回 (连坐召回).
+
+        当 top chunk 被召回时, 把**同一文档**的兄弟 chunk 一并带上, 保证
+        喂给 LLM 的上下文是完整的段落/章节, 而不是被切碎的孤立句子.
+
+        实现:
+          - 仅对 fused 前 `max_docs` 个 doc_id 做连坐 (控成本).
+          - 每个 doc_id 最多补 `max_extra_per_doc` 个兄弟 chunk.
+          - 兄弟 chunk 继承其父 chunk 的 rrf_score, 排在其后、其他文档之前.
+        """
+        if not fused:
+            return fused
+        recalled_ids = {c["id"] for c in fused}
+        expanded: List[dict] = list(fused)
+        seen: set = set(recalled_ids)
+        for parent in fused[:max_docs]:
+            doc_id = (parent.get("metadata", {}) or {}).get("doc_id")
+            if not doc_id:
+                continue
+            parent_score = parent.get("rrf_score", 0.0) or 0.0
+            sibs = self._sibling_chunks(doc_id, seen)
+            for s in sibs[:max_extra_per_doc]:
+                s["rrf_score"] = parent_score * 0.99  # 紧随父 chunk 之后
+                expanded.append(s)
+                seen.add(s["id"])
+        return expanded
+
     def retrieve(self, query: str, top_k: int | None = None) -> List[dict]:
         # CPU 密集: embedding + 两次召回 + RRF. 同步接口.
         # 读不需要锁; BM25 内部 _ensure_index 有 _rebuild_lock.
@@ -129,7 +183,14 @@ class HybridRetriever:
         vec_hits = self.vector_store.query(qv, top_k=settings.top_k_vector)
         bm25_hits = self.bm25_store.query(query, top_k=settings.top_k_bm25)
         fused = rrf_fuse([vec_hits, bm25_hits], k=60)
-        return fused[: top_k * 2]
+        # 候选池: 先取 top_k 个做 RRF 融合结果.
+        fused_top = fused[: top_k * 2]
+        # 父文档召回 (连坐): 把同文档兄弟 chunk 补回, 提升上下文完整度.
+        if getattr(settings, "parent_recall_enabled", False):
+            fused_top = self.expand_parent_recall(
+                fused_top, max_docs=5, max_extra_per_doc=settings.parent_recall_extra
+            )
+        return fused_top
 
     async def retrieve_async(self, query: str, top_k: int | None = None) -> List[dict]:
         """async 包装: 在 async 上下文里调用, 不会阻塞事件循环."""

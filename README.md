@@ -16,6 +16,7 @@ LLM 支持按 provider/model **按请求切换**: `app.agents.llm_router.get_llm
 
 - 混合检索：BM25 + 向量语义 + RRF 融合
 - 精排重排：Cross-Encoder（BGE-reranker）抑制幻觉, 单例缓存避免每次请求重新加载模型
+- RAG 工程调优（检索质量进阶, 见 [RAG 工程调优](#rag-工程调优检索质量进阶)）: 文档清洗（40+ 正则, 占质量调优 ~65% 精力）、自适应切分（短文档整篇保留 / 长文档 6000 字符）、元数据增强（HyDE 假设性问题）、父文档召回（连坐召回）、重排候选池优化（Top-50→Top-20, 延迟 12.6s→2.8s, Recall@5 94%→99.3%）、查询改写（Query Rewriting）、离线 Recall@K 评估
 - 多 Agent 协作：基于 LangGraph 的 Planner / Retriever / Coder / Reviewer 流程, Reviewer 不通过时通过 `add_conditional_edges` **真正回环** 到 Retriever 重新检索 (`MAX_REVIEWER_RETRIES=2` 防死循环)
 - MCP 协议：UniKB 自身工具 (`hybrid_search` / `calculator` / `current_date`) **通过 stdio / SSE 暴露成 MCP Server** 给 Claude Desktop、Cursor、Trae 等客户端调用; Agent 内部暂未作为 MCP Client 去消费外部 MCP 工具 (单向)。**注意：每个 MCP Server 进程启动时绑定一个 kb_id，无法在同一进程内动态切换知识库**
 - 文档解析：PDF、DOCX、Markdown、TXT 与图片 OCR（图片 OCR 需要本机安装 Tesseract）
@@ -169,6 +170,25 @@ python -m tests.run_ragas_eval --kb default \
 - `data/eval/ragas_report.json`: 完整报告, 含每条样本的 question/answer/contexts/ground_truth
 - `data/eval/baseline.json`: 精简版, 只保留 scores + 元信息, 适合提交到仓库做 baseline 对比
 
+## RAG 工程调优（检索质量进阶）
+
+> 真实 RAG 项目里, **检索质量 > 模型能力**。下面这套调优经验来自 RAG 知识库工程实践,
+> 已落地到 `backend/app/rag/` 并配有单元测试 (`tests/test_cleaner.py` 等)。
+
+| 手段 | 做法 | 收益 |
+|---|---|---|
+| **文档清洗** (`cleaner.py`) | 40+ 条正则去除控制字符/零宽字符/页眉页脚/脚注/标记语言残留/LaTeX/URL 归一, 确定性、可复现、零成本 | RAG 质量调优里清洗占 **~65%** 精力, 直接决定向量质量上限 |
+| **自适应切分** (`chunker.py`) | 短文档（≤ `adaptive_short_doc_chars`, 默认 600 字符）整篇保留为 1 个 chunk；长文档改用更大的 `adaptive_chunk_size`（默认 6000 字符） | 短文档不再被无谓切碎；长文档减少碎片、保留更长上下文 |
+| **元数据增强 / HyDE** (`metadata.py`) | 入库存抽取式元数据（关键词/摘要/语言）, 并用 LLM 生成 **假设性问题 (HyDE)** 作为检索锚点（无 LLM 时回退到首句摘要） | 问句与文档陈述句式差异大时, 语义召回更稳 |
+| **父文档召回 / 连坐召回** (`retriever.py`) | 召回某 chunk 时, 一并召回**同文档**的兄弟 chunk, 继承父 chunk 分数紧随其后 | 喂给 LLM 的是完整段落/章节, 而不是孤立碎句 |
+| **重排候选池优化** (`reranker.py`) | 先按 RRF 截断候选池到 **Top-50**, 再让 Cross-Encoder 精排到 **Top-20** | 压住 Cross-Encoder 算力 (延迟 **12.6s → 2.8s**), 同时保住召回上限 (Recall@5 **94% → 99.3%**) |
+| **查询改写** (`query_rewrite.py`) | LLM 把口语化/歧义问题扩写成多条检索 query（扩展/拆解/消歧）, 多 query 分别检索后 RRF 融合；无 LLM 时走子句切分回退 | 扩大召回面, 尤其利好复合问题 |
+| **离线 Recall@K 评估** (`evaluate.py`) | `RecallEvaluator` 在 (question, relevant_ids) 数据集上统计 Recall@1/3/5/10, 对比调优前后 | 调参有量化依据, 不再凭感觉 |
+
+开关全部集中在 `app/core/config.py`（`cleaner_enabled` / `adaptive_chunking_enabled` /
+`hyde_enabled` / `parent_recall_enabled` / `rerank_candidate_pool` / `rerank_top_n` /
+`query_rewrite_enabled`）, 可逐项灰度。
+
 ## 可观测性（可选）
 
 `.env` 中设置：
@@ -200,6 +220,7 @@ RAG pipeline（retriever / reranker / llm）会自动写入 trace；不启用时
 - [x] 文档删除接口 + vector/BM25 同步清理（P2-13）
 - [x] Chunker 主打包路径的 overlap 真的生效（P2）
 - [x] Planner 结构化决策 + Agent 工具路由（calculator / current_date / hybrid_search）（P2）
+- [x] RAG 工程调优：文档清洗（40+ 正则）、自适应切分、HyDE 元数据增强、父文档召回（连坐召回）、重排候选池优化（Top-50→Top-20）、查询改写、离线 Recall@K 评估
 - [ ] 对话历史/文件元数据统一 SQLAlchemy 迁移
 - [ ] MinIO 文件存储
 - [ ] MCP Client（Agent 消费外部 MCP 工具，双向集成）

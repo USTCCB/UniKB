@@ -13,6 +13,8 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.kb_registry import ensure_kb_for_read, ensure_kb_for_write
 from app.rag.chunker import TextChunker
+from app.rag.cleaner import DocumentCleaner
+from app.rag.metadata import MetadataEnhancer
 from app.rag.parser import DocumentParser
 from app.rag.retriever import get_retriever
 from app.schemas.document import DocumentUploadResponse
@@ -108,14 +110,35 @@ async def upload_document(
             detail=f"文件过大: {e.size} 字节, 上限 {e.limit} 字节",
         )
 
-    # 2) 解析 + 切分 + 入库 (CPU 密集: 解析+切分+embedding+向量/BM25 写盘)
+    # 2) 解析 + 清洗 + 自适应切分 + 元数据增强 + 入库
+    #    (CPU 密集: 解析+切分+embedding+向量/BM25 写盘)
     try:
-        text = await asyncio.to_thread(DocumentParser().parse, str(dest))
-        if not text.strip():
+        raw = await asyncio.to_thread(DocumentParser().parse, str(dest))
+        if not raw.strip():
             raise HTTPException(status_code=400, detail="文档内容为空或解析失败")
-        chunks = await asyncio.to_thread(TextChunker().split, text, doc_id=doc_id)
+        # 2.1) 文档清洗: 40+ 正则去除噪声 (控制字符/页眉页脚/标记语言残留等).
+        text = await asyncio.to_thread(
+            DocumentCleaner(enabled=settings.cleaner_enabled).clean, raw
+        )
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="清洗后文档内容为空")
+        # 2.2) 自适应切分: 短文档整篇, 长文档按 adaptive_chunk_size 切.
+        chunks = await asyncio.to_thread(
+            TextChunker(
+                adaptive=settings.adaptive_chunking_enabled,
+                adaptive_chunk_size=settings.adaptive_chunk_size,
+                adaptive_short_doc_chars=settings.adaptive_short_doc_chars,
+            ).split,
+            text,
+            doc_id=doc_id,
+        )
         if not chunks:
             raise HTTPException(status_code=400, detail="切片为空")
+        # 2.3) 元数据增强 / HyDE: 给每个 chunk 追加关键词/摘要/假设性问题
+        #      (无 LLM 时回退到抽取式摘要, 保证入库链路零外部依赖).
+        enhancer = MetadataEnhancer(hyde_enabled=settings.hyde_enabled)
+        for c in chunks:
+            c.metadata |= enhancer.enrich_with_hyde(c.text, llm=None)
         retriever = get_retriever(kb_id)
         ids = [c.metadata["chunk_id"] for c in chunks]
         docs = [c.text for c in chunks]

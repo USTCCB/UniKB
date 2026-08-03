@@ -28,18 +28,53 @@ class TextChunker:
     有几个字符重叠. 硬切路径(没有 separator)严格 overlap.
     """
 
-    def __init__(self, chunk_size: int | None = None, chunk_overlap: int | None = None):
+    def __init__(
+        self,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+        adaptive: bool = False,
+        adaptive_chunk_size: int | None = None,
+        adaptive_short_doc_chars: int | None = None,
+    ):
         self.chunk_size = chunk_size or settings.chunk_size
         self.chunk_overlap = chunk_overlap or settings.chunk_overlap
         # overlap 必须 < chunk_size, 否则循环不收敛 (硬切路径).
         if self.chunk_overlap >= self.chunk_size:
             self.chunk_overlap = max(0, self.chunk_size // 4)
         self.separators = ["\n\n", "\n", "。", "！", "？", ". ", "! ", "? ", " ", ""]
+        # 自适应切分参数 (来自 RAG 工程实践):
+        #   短文档 (len <= adaptive_short_doc_chars) 整体作为 1 个 chunk,
+        #   避免被无谓切碎; 长文档改用更大的 adaptive_chunk_size (默认 6000)
+        #   以减少 chunk 数量、保留更长上下文.
+        self.adaptive = adaptive
+        self.adaptive_chunk_size = adaptive_chunk_size or settings.adaptive_chunk_size
+        self.adaptive_short_doc_chars = (
+            adaptive_short_doc_chars or settings.adaptive_short_doc_chars
+        )
 
     def split(self, text: str, doc_id: str = "") -> List[Chunk]:
         text = (text or "").strip()
         if not text:
             return []
+        # 自适应模式: 短文档整篇保留, 长文档用更大的 chunk_size.
+        if self.adaptive:
+            if len(text) <= self.adaptive_short_doc_chars:
+                chunk = Chunk(text=text, metadata={"doc_id": doc_id})
+                chunk.metadata["chunk_id"] = f"{doc_id}_c0"
+                chunk.metadata["chunk_index"] = 0
+                return [chunk]
+            # 长文档: 临时把 chunk_size 放大到 adaptive_chunk_size 再走常规递归切分.
+            saved = self.chunk_size
+            self.chunk_size = self.adaptive_chunk_size
+            try:
+                return self._split_long(text, doc_id)
+            finally:
+                self.chunk_size = saved
+        # 非自适应 (默认): 直接走常规递归切分.
+        return self._split_long(text, doc_id)
+
+    def _split_long(self, text: str, doc_id: str = "") -> List[Chunk]:
+        """常规递归切分 (自适应长文档与默认模式共用). 见类 docstring 的 overlap 规则."""
         splits = self._recursive_split(text, self.separators)
         # 过滤纯分隔符的"幽灵段" (递归时会产生 "。" 这种空壳).
         splits = [s for s in splits if s.strip()]
