@@ -22,7 +22,7 @@ def test_parent_recall_brings_siblings():
     r = _make_retriever()
     # 只召回了 docA_c0
     fused = [{"id": "docA_c0", "document": "A段落0", "metadata": {"doc_id": "docA"}, "rrf_score": 0.9}]
-    expanded = r.expand_parent_recall(fused, max_docs=5, max_extra_per_doc=8)
+    expanded = r.expand_parent_recall(fused, max_docs=4, max_extra_per_doc=6)
     ids = [c["id"] for c in expanded]
     # docA 的兄弟 chunk 应被连坐召回
     assert "docA_c1" in ids
@@ -36,7 +36,7 @@ def test_parent_recall_brings_siblings():
 def test_parent_recall_respects_extra_limit():
     r = _make_retriever()
     fused = [{"id": "docA_c0", "document": "A段落0", "metadata": {"doc_id": "docA"}, "rrf_score": 0.9}]
-    expanded = r.expand_parent_recall(fused, max_docs=5, max_extra_per_doc=1)
+    expanded = r.expand_parent_recall(fused, max_docs=4, max_extra_per_doc=1)
     sib_ids = [c["id"] for c in expanded if c["id"] != "docA_c0"]
     # 最多补 1 个兄弟
     assert len(sib_ids) == 1
@@ -45,7 +45,7 @@ def test_parent_recall_respects_extra_limit():
 def test_parent_recall_inherits_parent_score():
     r = _make_retriever()
     fused = [{"id": "docA_c0", "document": "A段落0", "metadata": {"doc_id": "docA"}, "rrf_score": 0.9}]
-    expanded = r.expand_parent_recall(fused, max_docs=5, max_extra_per_doc=8)
+    expanded = r.expand_parent_recall(fused, max_docs=4, max_extra_per_doc=6)
     # 兄弟 chunk 的分数应略低于父 (0.9 * 0.99), 排在其后.
     sib = next(c for c in expanded if c["id"] == "docA_c1")
     assert abs(sib["rrf_score"] - 0.9 * 0.99) < 1e-9

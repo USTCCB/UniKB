@@ -145,7 +145,7 @@ class HybridRetriever:
     def expand_parent_recall(
         self,
         fused: List[dict],
-        max_docs: int = 5,
+        max_docs: int = 4,
         max_extra_per_doc: int = 6,
     ) -> List[dict]:
         """父文档召回 (连坐召回).

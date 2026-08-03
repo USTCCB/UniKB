@@ -5,9 +5,9 @@ from app.rag.chunker import TextChunker
 
 
 def test_short_doc_kept_whole():
-    # 短于 adaptive_short_doc_chars (默认 600) 的文档应整体保留为 1 个 chunk.
+    # 短于 adaptive_short_doc_chars (默认 500) 的文档应整体保留为 1 个 chunk.
     text = "这是一段很短的文档内容，整体作为单一 chunk 保留以提升上下文完整度。"
-    ch = TextChunker(adaptive=True, adaptive_short_doc_chars=600)
+    ch = TextChunker(adaptive=True, adaptive_short_doc_chars=500)
     out = ch.split(text, doc_id="d1")
     assert len(out) == 1
     assert out[0].text == text
@@ -36,7 +36,7 @@ def test_adaptive_off_keeps_original_behavior():
 
 def test_chunk_ids_injected():
     text = "短文档一整段。"
-    ch = TextChunker(adaptive=True, adaptive_short_doc_chars=600)
+    ch = TextChunker(adaptive=True, adaptive_short_doc_chars=500)
     out = ch.split(text, doc_id="docA")
     assert out[0].metadata["chunk_id"].startswith("docA_c")
     assert out[0].metadata["chunk_index"] == 0
